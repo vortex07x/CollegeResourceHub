@@ -38,15 +38,15 @@ class AdminController
             $stmt = $db->query("SELECT COALESCE(SUM(file_size), 0) as total FROM files");
             $totalStorage = round($stmt->fetch(PDO::FETCH_ASSOC)['total'] / (1024 * 1024), 2);
 
-            // Recent users (last 7 days)
-            $stmt = $db->query("SELECT COUNT(*) as total FROM users WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)");
+            // Recent users (last 7 days) - PostgreSQL INTERVAL syntax
+            $stmt = $db->query("SELECT COUNT(*) as total FROM users WHERE created_at >= NOW() - INTERVAL '7 days'");
             $recentUsers = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
 
-            // Recent uploads (last 7 days)
-            $stmt = $db->query("SELECT COUNT(*) as total FROM files WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)");
+            // Recent uploads (last 7 days) - PostgreSQL INTERVAL syntax
+            $stmt = $db->query("SELECT COUNT(*) as total FROM files WHERE created_at >= NOW() - INTERVAL '7 days'");
             $recentUploads = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
 
-            // FIXED: Most active users (top 5) - Removed role filter
+            // Most active users (top 5)
             $topUsersQuery = "
                 SELECT 
                     u.id, 
@@ -56,7 +56,7 @@ class AdminController
                 FROM users u
                 LEFT JOIN files f ON f.user_id = u.id
                 GROUP BY u.id, u.name, u.email
-                HAVING file_count > 0
+                HAVING COUNT(f.id) > 0
                 ORDER BY file_count DESC
                 LIMIT 5
             ";
