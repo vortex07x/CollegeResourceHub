@@ -4,6 +4,7 @@ frontend/dist/
 frontend/build/
 frontend/.env
 frontend/.env.local
+frontend/.env.production
 
 # Backend
 backend/vendor/

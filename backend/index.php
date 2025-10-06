@@ -3,10 +3,11 @@
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
-// CORS Headers - Must include PATCH
-header('Access-Control-Allow-Origin: *');
+// CORS Headers - Must be FIRST before any output
+header('Access-Control-Allow-Origin: *'); // Will restrict this after deployment
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS, PATCH');
 header('Access-Control-Allow-Headers: Content-Type, Authorization');
+header('Access-Control-Allow-Credentials: true');
 header('Access-Control-Max-Age: 3600');
 
 // Handle preflight requests BEFORE setting Content-Type
