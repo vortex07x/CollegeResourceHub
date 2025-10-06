@@ -10,7 +10,7 @@ class Database {
 
     public function __construct() {
         $this->host = $_ENV['DB_HOST'];
-        $this->port = $_ENV['DB_PORT'] ?? '3306';
+        $this->port = $_ENV['DB_PORT'] ?? '5432'; // PostgreSQL default port
         $this->db_name = $_ENV['DB_NAME'];
         $this->username = $_ENV['DB_USER'];
         $this->password = $_ENV['DB_PASS'];
@@ -20,8 +20,9 @@ class Database {
         $this->conn = null;
 
         try {
+            // Changed from mysql to pgsql
             $this->conn = new PDO(
-                "mysql:host=" . $this->host . ";port=" . $this->port . ";dbname=" . $this->db_name,
+                "pgsql:host=" . $this->host . ";port=" . $this->port . ";dbname=" . $this->db_name,
                 $this->username,
                 $this->password
             );
