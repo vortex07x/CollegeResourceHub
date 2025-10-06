@@ -42,8 +42,7 @@ class User
         $stmt->bindParam(':college', $this->college);
 
         if ($stmt->execute()) {
-            // PostgreSQL: Use RETURNING clause
-            $row = $stmt->fetch();
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
             $this->id = $row['id'];
             return true;
         }
@@ -63,7 +62,7 @@ class User
         $stmt->execute();
 
         if ($stmt->rowCount() > 0) {
-            $row = $stmt->fetch();
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
             $this->id = $row['id'];
             $this->name = $row['name'];
             $this->email = $row['email'];
@@ -97,7 +96,7 @@ class User
         $stmt->execute();
 
         if ($stmt->rowCount() > 0) {
-            return $stmt->fetch();
+            return $stmt->fetch(PDO::FETCH_ASSOC);
         }
 
         return null;
@@ -142,7 +141,6 @@ class User
             return false;
         }
 
-        // PostgreSQL: Add updated_at
         $updates[] = "updated_at = CURRENT_TIMESTAMP";
 
         $query = "UPDATE " . $this->table . " 
@@ -164,19 +162,19 @@ class User
         $filesStmt = $this->conn->prepare($filesQuery);
         $filesStmt->bindParam(':id', $id);
         $filesStmt->execute();
-        $filesCount = $filesStmt->fetch()['files_count'];
+        $filesCount = $filesStmt->fetch(PDO::FETCH_ASSOC)['files_count'];
 
         $viewsQuery = "SELECT COALESCE(SUM(download_count), 0) as total_views FROM files WHERE user_id = :id";
         $viewsStmt = $this->conn->prepare($viewsQuery);
         $viewsStmt->bindParam(':id', $id);
         $viewsStmt->execute();
-        $totalViews = $viewsStmt->fetch()['total_views'];
+        $totalViews = $viewsStmt->fetch(PDO::FETCH_ASSOC)['total_views'];
 
         $downloadsQuery = "SELECT COUNT(*) as downloads_made FROM downloads WHERE user_id = :id";
         $downloadsStmt = $this->conn->prepare($downloadsQuery);
         $downloadsStmt->bindParam(':id', $id);
         $downloadsStmt->execute();
-        $downloadsMade = $downloadsStmt->fetch()['downloads_made'];
+        $downloadsMade = $downloadsStmt->fetch(PDO::FETCH_ASSOC)['downloads_made'];
 
         return [
             'files_uploaded' => (int)$filesCount,
@@ -187,74 +185,118 @@ class User
 
     public function createPasswordResetOTP($email)
     {
-        $query = "SELECT name FROM " . $this->table . " WHERE email = :email LIMIT 1";
-        $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':email', $email);
-        $stmt->execute();
+        $logFile = __DIR__ . '/../user-otp-debug.log';
+        
+        try {
+            file_put_contents($logFile, "\n=== createPasswordResetOTP ===\n" . date('Y-m-d H:i:s') . "\n", FILE_APPEND);
+            file_put_contents($logFile, "Email: " . $email . "\n", FILE_APPEND);
+            
+            $query = "SELECT name FROM " . $this->table . " WHERE email = :email LIMIT 1";
+            file_put_contents($logFile, "Query: " . $query . "\n", FILE_APPEND);
+            
+            $stmt = $this->conn->prepare($query);
+            $stmt->bindParam(':email', $email);
+            $stmt->execute();
 
-        if ($stmt->rowCount() === 0) {
-            return ['success' => false, 'message' => 'Email not found'];
+            if ($stmt->rowCount() === 0) {
+                file_put_contents($logFile, "Email not found in database\n", FILE_APPEND);
+                return ['success' => false, 'message' => 'Email not found'];
+            }
+
+            $user = $stmt->fetch(PDO::FETCH_ASSOC);
+            file_put_contents($logFile, "User found: " . json_encode($user) . "\n", FILE_APPEND);
+
+            // Generate 6-digit OTP
+            $otp = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+            file_put_contents($logFile, "Generated OTP: " . $otp . "\n", FILE_APPEND);
+
+            $expiryMinutes = $_ENV['OTP_EXPIRY_MINUTES'] ?? getenv('OTP_EXPIRY_MINUTES') ?? 10;
+            file_put_contents($logFile, "Expiry minutes: " . $expiryMinutes . "\n", FILE_APPEND);
+            
+            $expiresAt = date('Y-m-d H:i:s', strtotime("+{$expiryMinutes} minutes"));
+            file_put_contents($logFile, "Expires at: " . $expiresAt . "\n", FILE_APPEND);
+
+            // Delete old unused OTPs for this email
+            $deleteQuery = "DELETE FROM " . $this->password_resets_table . " 
+                           WHERE email = :email AND is_used = FALSE";
+            file_put_contents($logFile, "Delete query: " . $deleteQuery . "\n", FILE_APPEND);
+            
+            $deleteStmt = $this->conn->prepare($deleteQuery);
+            $deleteStmt->bindParam(':email', $email);
+            $deleteStmt->execute();
+            file_put_contents($logFile, "Deleted " . $deleteStmt->rowCount() . " old OTPs\n", FILE_APPEND);
+
+            // Hash the OTP before storing (security best practice)
+            $hashedOTP = password_hash($otp, PASSWORD_DEFAULT);
+            file_put_contents($logFile, "Hashed OTP (first 20 chars): " . substr($hashedOTP, 0, 20) . "...\n", FILE_APPEND);
+
+            // Insert new OTP
+            $insertQuery = "INSERT INTO " . $this->password_resets_table . " 
+                           (email, otp, expires_at) 
+                           VALUES (:email, :otp, :expires_at)";
+            file_put_contents($logFile, "Insert query: " . $insertQuery . "\n", FILE_APPEND);
+            
+            $insertStmt = $this->conn->prepare($insertQuery);
+            $insertStmt->bindParam(':email', $email);
+            $insertStmt->bindParam(':otp', $hashedOTP);
+            $insertStmt->bindParam(':expires_at', $expiresAt);
+
+            if ($insertStmt->execute()) {
+                file_put_contents($logFile, "OTP inserted successfully\n", FILE_APPEND);
+                return [
+                    'success' => true,
+                    'otp' => $otp, // Return plain OTP to send via email
+                    'name' => $user['name']
+                ];
+            }
+
+            file_put_contents($logFile, "Failed to insert OTP\n", FILE_APPEND);
+            return ['success' => false, 'message' => 'Failed to generate OTP'];
+            
+        } catch (PDOException $e) {
+            file_put_contents($logFile, "PDO EXCEPTION in createPasswordResetOTP: " . $e->getMessage() . "\n", FILE_APPEND);
+            file_put_contents($logFile, "Stack: " . $e->getTraceAsString() . "\n", FILE_APPEND);
+            throw $e;
+        } catch (Exception $e) {
+            file_put_contents($logFile, "EXCEPTION in createPasswordResetOTP: " . $e->getMessage() . "\n", FILE_APPEND);
+            file_put_contents($logFile, "Stack: " . $e->getTraceAsString() . "\n", FILE_APPEND);
+            throw $e;
         }
-
-        $user = $stmt->fetch();
-
-        $otp = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
-
-        $expiryMinutes = $_ENV['OTP_EXPIRY_MINUTES'] ?? 10;
-        $expiresAt = date('Y-m-d H:i:s', strtotime("+{$expiryMinutes} minutes"));
-
-        // PostgreSQL: Use FALSE boolean
-        $deleteQuery = "DELETE FROM " . $this->password_resets_table . " 
-                       WHERE email = :email AND is_used = FALSE";
-        $deleteStmt = $this->conn->prepare($deleteQuery);
-        $deleteStmt->bindParam(':email', $email);
-        $deleteStmt->execute();
-
-        $insertQuery = "INSERT INTO " . $this->password_resets_table . " 
-                       (email, otp, expires_at) 
-                       VALUES (:email, :otp, :expires_at)";
-        $insertStmt = $this->conn->prepare($insertQuery);
-        $insertStmt->bindParam(':email', $email);
-        $insertStmt->bindParam(':otp', $otp);
-        $insertStmt->bindParam(':expires_at', $expiresAt);
-
-        if ($insertStmt->execute()) {
-            return [
-                'success' => true,
-                'otp' => $otp,
-                'name' => $user['name']
-            ];
-        }
-
-        return ['success' => false, 'message' => 'Failed to generate OTP'];
     }
 
     public function verifyOTP($email, $otp)
     {
-        $query = "SELECT id, expires_at, is_used 
+        $query = "SELECT id, otp, expires_at, is_used 
                   FROM " . $this->password_resets_table . " 
-                  WHERE email = :email AND otp = :otp 
+                  WHERE email = :email 
                   ORDER BY created_at DESC 
                   LIMIT 1";
 
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':email', $email);
-        $stmt->bindParam(':otp', $otp);
         $stmt->execute();
 
         if ($stmt->rowCount() === 0) {
             return ['valid' => false, 'message' => 'Invalid OTP'];
         }
 
-        $row = $stmt->fetch();
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        // PostgreSQL: Check for TRUE boolean
-        if ($row['is_used'] === true || $row['is_used'] === 't') {
+        // PostgreSQL boolean handling - returns actual boolean
+        $isUsed = $row['is_used'];
+        // Convert to boolean properly
+        if ($isUsed === true || $isUsed === 't' || $isUsed === 1 || $isUsed === '1' || $isUsed === 'true') {
             return ['valid' => false, 'message' => 'OTP already used'];
         }
 
+        // Check if expired
         if (strtotime($row['expires_at']) < time()) {
             return ['valid' => false, 'message' => 'OTP expired'];
+        }
+
+        // Verify hashed OTP
+        if (!password_verify($otp, $row['otp'])) {
+            return ['valid' => false, 'message' => 'Invalid OTP'];
         }
 
         return ['valid' => true, 'reset_id' => $row['id']];
@@ -270,7 +312,6 @@ class User
 
         $hashedPassword = password_hash($newPassword, PASSWORD_BCRYPT);
 
-        // PostgreSQL: Add updated_at
         $updateQuery = "UPDATE " . $this->table . " 
                        SET password = :password, updated_at = CURRENT_TIMESTAMP 
                        WHERE email = :email";
@@ -279,7 +320,7 @@ class User
         $updateStmt->bindParam(':email', $email);
 
         if ($updateStmt->execute()) {
-            // PostgreSQL: Use TRUE boolean
+            // Mark OTP as used
             $markUsedQuery = "UPDATE " . $this->password_resets_table . " 
                              SET is_used = TRUE 
                              WHERE id = :reset_id";
@@ -295,7 +336,6 @@ class User
 
     public function cleanupExpiredOTPs()
     {
-        // PostgreSQL: Use TRUE boolean and NOW()
         $query = "DELETE FROM " . $this->password_resets_table . " 
                   WHERE expires_at < NOW() OR is_used = TRUE";
         $stmt = $this->conn->prepare($query);
@@ -310,7 +350,7 @@ class User
         $stmt->execute();
 
         if ($stmt->rowCount() > 0) {
-            $row = $stmt->fetch();
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
             return $row['role'] === 'admin';
         }
 
