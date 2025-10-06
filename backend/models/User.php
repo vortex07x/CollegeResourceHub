@@ -41,8 +41,8 @@ class User
         $stmt->bindParam(':college', $this->college);
 
         if ($stmt->execute()) {
-            // PostgreSQL: Get last insert ID with sequence name
-            $this->id = $this->conn->lastInsertId('users_id_seq');
+            // MySQL: Get last insert ID
+            $this->id = $this->conn->lastInsertId();
             return true;
         }
 
@@ -140,7 +140,7 @@ class User
             return false;
         }
 
-        // PostgreSQL: updated_at handled by trigger
+        // MySQL: updated_at handled by ON UPDATE CURRENT_TIMESTAMP
         $query = "UPDATE " . $this->table . " 
                   SET " . implode(', ', $updates) . " 
                   WHERE id = :id";
@@ -199,9 +199,9 @@ class User
         $expiryMinutes = $_ENV['OTP_EXPIRY_MINUTES'] ?? 10;
         $expiresAt = date('Y-m-d H:i:s', strtotime("+{$expiryMinutes} minutes"));
 
-        // PostgreSQL: Use FALSE instead of 0
+        // MySQL: Use 0 instead of FALSE
         $deleteQuery = "DELETE FROM " . $this->password_resets_table . " 
-                       WHERE email = :email AND is_used = FALSE";
+                       WHERE email = :email AND is_used = 0";
         $deleteStmt = $this->conn->prepare($deleteQuery);
         $deleteStmt->bindParam(':email', $email);
         $deleteStmt->execute();
@@ -244,8 +244,8 @@ class User
 
         $row = $stmt->fetch();
 
-        // PostgreSQL: Boolean comparison
-        if ($row['is_used'] === true || $row['is_used'] === 't') {
+        // MySQL: Check for 1 (used)
+        if ($row['is_used'] == 1) {
             return ['valid' => false, 'message' => 'OTP already used'];
         }
 
@@ -266,7 +266,7 @@ class User
 
         $hashedPassword = password_hash($newPassword, PASSWORD_BCRYPT);
 
-        // PostgreSQL: updated_at handled by trigger
+        // MySQL: updated_at handled by ON UPDATE CURRENT_TIMESTAMP
         $updateQuery = "UPDATE " . $this->table . " 
                        SET password = :password 
                        WHERE email = :email";
@@ -275,9 +275,9 @@ class User
         $updateStmt->bindParam(':email', $email);
 
         if ($updateStmt->execute()) {
-            // PostgreSQL: Use TRUE instead of 1
+            // MySQL: Use 1 instead of TRUE
             $markUsedQuery = "UPDATE " . $this->password_resets_table . " 
-                             SET is_used = TRUE 
+                             SET is_used = 1 
                              WHERE id = :reset_id";
             $markUsedStmt = $this->conn->prepare($markUsedQuery);
             $markUsedStmt->bindParam(':reset_id', $verification['reset_id']);
@@ -291,9 +291,9 @@ class User
 
     public function cleanupExpiredOTPs()
     {
-        // PostgreSQL: Use TRUE instead of 1
+        // MySQL: Use 1 instead of TRUE
         $query = "DELETE FROM " . $this->password_resets_table . " 
-                  WHERE expires_at < NOW() OR is_used = TRUE";
+                  WHERE expires_at < NOW() OR is_used = 1";
         $stmt = $this->conn->prepare($query);
         return $stmt->execute();
     }
