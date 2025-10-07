@@ -1,32 +1,46 @@
-FROM php:8.2-cli
+FROM php:8.2-apache
 
-# Install system dependencies including Git and PostgreSQL
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     git \
     unzip \
     libpq-dev \
-    && docker-php-ext-install pdo pdo_pgsql pgsql \
+    libzip-dev \
+    curl \
+    && docker-php-ext-install pdo pdo_pgsql pgsql zip \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# Enable Apache modules
+RUN a2enmod rewrite headers
+
+# Install Composer
+RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+
 # Set working directory
-WORKDIR /app
+WORKDIR /var/www/html
 
-# Copy composer.phar and composer files
-COPY composer.phar ./
-COPY composer.json ./
+# Copy composer files
+COPY composer.json composer.lock* ./
 
-# Copy composer.lock if it exists
-COPY composer.lock* ./
-
-# Install dependencies with prefer-dist to avoid git requirement
-RUN php composer.phar install --no-dev --optimize-autoloader --prefer-dist --no-interaction
+# Install dependencies
+RUN composer install --no-dev --optimize-autoloader --prefer-dist --no-interaction --no-scripts
 
 # Copy application files
 COPY . .
 
+# Set permissions
+RUN chown -R www-data:www-data /var/www/html \
+    && chmod -R 755 /var/www/html
+
+# Optimize autoloader
+RUN composer dump-autoload --optimize
+
+# Configure Apache to use PORT environment variable
+RUN sed -i 's/80/${PORT}/g' /etc/apache2/sites-available/000-default.conf /etc/apache2/ports.conf
+
 # Expose port
 EXPOSE 8080
 
-# Start PHP server
-CMD php -S 0.0.0.0:8080
+# Start Apache
+CMD ["sh", "-c", "apache2-foreground"]
