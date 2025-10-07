@@ -26,6 +26,15 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
 // Load Response utility
 require_once __DIR__ . '/utils/Response.php';
 
+// Helper function to get environment variable
+function env($key, $default = null) {
+    $value = getenv($key);
+    if ($value === false) {
+        $value = $_ENV[$key] ?? $_SERVER[$key] ?? $default;
+    }
+    return $value;
+}
+
 // Load environment variables
 try {
     // For production (Render), environment variables are already set
@@ -36,11 +45,20 @@ try {
     }
     
     // Verify required environment variables
-    $required = ['DB_HOST', 'DB_NAME', 'DB_USER', 'JWT_SECRET', 'CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET'];
+    $required = [
+        'DB_HOST', 
+        'DB_NAME', 
+        'DB_USER', 
+        'DB_PASSWORD',
+        'JWT_SECRET', 
+        'CLOUDINARY_CLOUD_NAME', 
+        'CLOUDINARY_API_KEY', 
+        'CLOUDINARY_API_SECRET'
+    ];
     $missing = [];
     
     foreach ($required as $var) {
-        if (!isset($_ENV[$var]) && !getenv($var)) {
+        if (env($var) === null) {
             $missing[] = $var;
         }
     }
@@ -54,13 +72,17 @@ try {
     echo json_encode([
         'success' => false,
         'message' => 'Environment configuration error',
-        'error' => $isProduction ? 'Configuration error' : $e->getMessage()
+        'error' => $isProduction ? 'Configuration error' : $e->getMessage(),
+        'debug' => !$isProduction ? [
+            'missing' => $missing ?? [],
+            'host' => $_SERVER['HTTP_HOST'] ?? 'unknown'
+        ] : null
     ]);
     exit();
 }
 
 // CORS Headers - Get allowed origin from environment
-$allowedOrigin = $_ENV['FRONTEND_URL'] ?? getenv('FRONTEND_URL') ?? 'http://localhost:5173';
+$allowedOrigin = env('FRONTEND_URL', 'http://localhost:5173');
 $allowedOrigin = rtrim($allowedOrigin, '/');
 
 // For development, allow localhost variations
