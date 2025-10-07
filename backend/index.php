@@ -3,23 +3,7 @@
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
-// CORS Headers - Must be FIRST before any output
-header('Access-Control-Allow-Origin: *'); // Will restrict this after deployment
-header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS, PATCH');
-header('Access-Control-Allow-Headers: Content-Type, Authorization');
-header('Access-Control-Allow-Credentials: true');
-header('Access-Control-Max-Age: 3600');
-
-// Handle preflight requests BEFORE setting Content-Type
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    http_response_code(200);
-    exit();
-}
-
-// NOW set Content-Type for actual requests
-header('Content-Type: application/json');
-
-// Load Composer autoload
+// Load Composer autoload FIRST
 if (file_exists(__DIR__ . '/vendor/autoload.php')) {
     require_once __DIR__ . '/vendor/autoload.php';
 } else {
@@ -52,7 +36,7 @@ try {
     $dotenv->load();
     
     // Verify required environment variables
-    $required = ['DB_HOST', 'DB_NAME', 'DB_USER', 'JWT_SECRET'];
+    $required = ['DB_HOST', 'DB_NAME', 'DB_USER', 'JWT_SECRET', 'CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET'];
     foreach ($required as $var) {
         if (!isset($_ENV[$var]) && !getenv($var)) {
             throw new Exception("Required environment variable missing: {$var}");
@@ -73,6 +57,27 @@ try {
     ]);
     exit();
 }
+
+// CORS Headers - NOW we can use environment variables
+$allowedOrigin = $_ENV['FRONTEND_URL'] ?? getenv('FRONTEND_URL') ?? 'http://localhost:5173';
+
+// Remove trailing slash if present
+$allowedOrigin = rtrim($allowedOrigin, '/');
+
+header('Access-Control-Allow-Origin: ' . $allowedOrigin);
+header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS, PATCH');
+header('Access-Control-Allow-Headers: Content-Type, Authorization');
+header('Access-Control-Allow-Credentials: true');
+header('Access-Control-Max-Age: 3600');
+
+// Handle preflight requests BEFORE setting Content-Type
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
+    exit();
+}
+
+// NOW set Content-Type for actual requests
+header('Content-Type: application/json');
 
 // Load and execute routes
 require_once __DIR__ . DIRECTORY_SEPARATOR . 'routes' . DIRECTORY_SEPARATOR . 'api.php';

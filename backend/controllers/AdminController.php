@@ -1,6 +1,7 @@
 <?php
 
 require_once BASE_PATH . DIRECTORY_SEPARATOR . 'config' . DIRECTORY_SEPARATOR . 'database.php';
+require_once BASE_PATH . DIRECTORY_SEPARATOR . 'config' . DIRECTORY_SEPARATOR . 'cloudinary.php';
 require_once BASE_PATH . DIRECTORY_SEPARATOR . 'utils' . DIRECTORY_SEPARATOR . 'Response.php';
 
 class AdminController
@@ -160,7 +161,7 @@ class AdminController
                 $downloadStmt->execute([$user['id']]);
                 $user['total_downloads'] = (int)$downloadStmt->fetch(PDO::FETCH_ASSOC)['total'];
             }
-            unset($user); // Break reference
+            unset($user);
 
             Response::success([
                 'users' => $users,
@@ -307,17 +308,15 @@ class AdminController
                 return;
             }
 
-            // Get user's files to delete from filesystem
+            // Get user's files to delete from Cloudinary
             $stmt = $db->prepare("SELECT file_path FROM files WHERE user_id = ?");
             $stmt->execute([$userId]);
             $files = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            // Delete files from filesystem
+            // Delete files from Cloudinary
+            $cloudinary = CloudinaryConfig::getInstance();
             foreach ($files as $file) {
-                $filePath = BASE_PATH . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $file['file_path']);
-                if (file_exists($filePath)) {
-                    @unlink($filePath);
-                }
+                $cloudinary->deleteFile($file['file_path']);
             }
 
             // Delete user (cascades to files, downloads, pinned_files)
@@ -370,6 +369,12 @@ class AdminController
             $stmt->execute();
 
             $files = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            // Add Cloudinary URLs
+            $cloudinary = CloudinaryConfig::getInstance();
+            foreach ($files as &$file) {
+                $file['cloudinary_url'] = $cloudinary->getFileUrl($file['file_path']);
+            }
 
             Response::success([
                 'files' => $files,
@@ -469,6 +474,10 @@ class AdminController
             ");
             $stmt->execute([$fileId]);
             $fileData = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            // Add Cloudinary URL
+            $cloudinary = CloudinaryConfig::getInstance();
+            $fileData['cloudinary_url'] = $cloudinary->getFileUrl($fileData['file_path']);
 
             Response::success($fileData, 'File updated successfully');
         } catch (Exception $e) {
@@ -504,11 +513,9 @@ class AdminController
                 return;
             }
 
-            // Delete from filesystem
-            $filePath = BASE_PATH . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $file['file_path']);
-            if (file_exists($filePath)) {
-                @unlink($filePath);
-            }
+            // Delete from Cloudinary
+            $cloudinary = CloudinaryConfig::getInstance();
+            $cloudinary->deleteFile($file['file_path']);
 
             // Delete from database (cascades to pinned_files and downloads)
             $stmt = $db->prepare("DELETE FROM files WHERE id = ?");

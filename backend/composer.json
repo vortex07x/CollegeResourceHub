@@ -10,7 +10,7 @@
         "guzzlehttp/guzzle": "^7.10",
         "phpoffice/phpword": "^1.0",
         "dompdf/dompdf": "^2.0",
-        "cloudinary/cloudinary_php": "^2.0"
+        "cloudinary/cloudinary_php": "^2.14"
     },
     "autoload": {
         "psr-4": {

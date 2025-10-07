@@ -13,6 +13,8 @@ backend/uploads/files/*
 backend/uploads/temp/*
 !backend/uploads/files/.gitkeep
 !backend/uploads/temp/.gitkeep
+backend/debug.log
+backend/composer.phar
 
 # IDE
 .vscode/
@@ -28,3 +30,7 @@ desktop.ini
 # Logs
 *.log
 npm-debug.log*
+
+# Deployment
+backend/render.yaml
+frontend/vercel.json

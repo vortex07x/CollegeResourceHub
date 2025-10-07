@@ -1,11 +1,11 @@
 <?php
 
 require_once BASE_PATH . DIRECTORY_SEPARATOR . 'config' . DIRECTORY_SEPARATOR . 'database.php';
+require_once BASE_PATH . DIRECTORY_SEPARATOR . 'config' . DIRECTORY_SEPARATOR . 'cloudinary.php';
 require_once BASE_PATH . DIRECTORY_SEPARATOR . 'utils' . DIRECTORY_SEPARATOR . 'Response.php';
 
 class FileController
 {
-
     public static function uploadFile()
     {
         try {
@@ -101,23 +101,16 @@ class FileController
                 return;
             }
 
-            // Generate unique filename
-            $fileName = uniqid() . '_' . time() . '.' . $fileExtension;
-            $uploadDir = BASE_PATH . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'files' . DIRECTORY_SEPARATOR;
+            // Upload to Cloudinary
+            $cloudinary = CloudinaryConfig::getInstance();
+            $uploadResult = $cloudinary->uploadFile($file['tmp_name'], [
+                'folder' => 'college_resources/files',
+                'public_id' => uniqid() . '_' . time(),
+                'resource_type' => 'raw'
+            ]);
 
-            // Create directory if it doesn't exist
-            if (!is_dir($uploadDir)) {
-                if (!mkdir($uploadDir, 0777, true)) {
-                    Response::error('Failed to create upload directory', 500);
-                    return;
-                }
-            }
-
-            $filePath = $uploadDir . $fileName;
-
-            // Move uploaded file
-            if (!move_uploaded_file($file['tmp_name'], $filePath)) {
-                Response::error('Failed to save file', 500);
+            if (!$uploadResult['success']) {
+                Response::error('Failed to upload file to cloud storage: ' . $uploadResult['error'], 500);
                 return;
             }
 
@@ -126,9 +119,8 @@ class FileController
             $db = $database->connect();
 
             if (!$db) {
-                if (file_exists($filePath)) {
-                    unlink($filePath);
-                }
+                // If database fails, delete from Cloudinary
+                $cloudinary->deleteFile($uploadResult['public_id']);
                 Response::error('Database connection failed', 500);
                 return;
             }
@@ -139,14 +131,13 @@ class FileController
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
 
-            $relativePath = 'uploads/files/' . $fileName;
-
+            // Store Cloudinary public_id as file_path
             $result = $stmt->execute([
                 $userId,
                 $title,
                 $description,
                 $file['name'],
-                $relativePath,
+                $uploadResult['public_id'], // Store public_id instead of local path
                 $fileExtension,
                 $category,
                 $subject,
@@ -157,9 +148,8 @@ class FileController
             ]);
 
             if (!$result) {
-                if (file_exists($filePath)) {
-                    unlink($filePath);
-                }
+                // If database fails, delete from Cloudinary
+                $cloudinary->deleteFile($uploadResult['public_id']);
                 Response::error('Failed to save file information', 500);
                 return;
             }
@@ -176,11 +166,11 @@ class FileController
             $stmt->execute([$fileId]);
             $fileData = $stmt->fetch(PDO::FETCH_ASSOC);
 
+            // Add Cloudinary URL to response
+            $fileData['cloudinary_url'] = $uploadResult['secure_url'];
+
             Response::success($fileData, 'File uploaded successfully', 201);
         } catch (Exception $e) {
-            if (isset($filePath) && file_exists($filePath)) {
-                unlink($filePath);
-            }
             Response::error('Upload failed: ' . $e->getMessage(), 500);
         }
     }
@@ -205,6 +195,12 @@ class FileController
 
             $stmt->execute();
             $files = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Add Cloudinary URLs to each file
+            $cloudinary = CloudinaryConfig::getInstance();
+            foreach ($files as &$file) {
+                $file['cloudinary_url'] = $cloudinary->getFileUrl($file['file_path']);
+            }
 
             Response::success($files, 'Files retrieved successfully');
         } catch (Exception $e) {
@@ -239,6 +235,12 @@ class FileController
             $stmt->execute([$userId]);
             $files = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+            // Add Cloudinary URLs
+            $cloudinary = CloudinaryConfig::getInstance();
+            foreach ($files as &$file) {
+                $file['cloudinary_url'] = $cloudinary->getFileUrl($file['file_path']);
+            }
+
             Response::success($files, 'User files retrieved successfully');
         } catch (Exception $e) {
             Response::error('Failed to retrieve files: ' . $e->getMessage(), 500);
@@ -272,6 +274,12 @@ class FileController
             ");
             $stmt->execute([$userId]);
             $files = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Add Cloudinary URLs
+            $cloudinary = CloudinaryConfig::getInstance();
+            foreach ($files as &$file) {
+                $file['cloudinary_url'] = $cloudinary->getFileUrl($file['file_path']);
+            }
 
             Response::success($files, 'Pinned files retrieved successfully');
         } catch (Exception $e) {
@@ -442,6 +450,10 @@ class FileController
             $stmt->execute([$fileId]);
             $fileData = $stmt->fetch(PDO::FETCH_ASSOC);
 
+            // Add Cloudinary URL
+            $cloudinary = CloudinaryConfig::getInstance();
+            $fileData['cloudinary_url'] = $cloudinary->getFileUrl($fileData['file_path']);
+
             Response::success($fileData, 'File updated successfully');
         } catch (Exception $e) {
             Response::error('Failed to update file: ' . $e->getMessage(), 500);
@@ -474,14 +486,6 @@ class FileController
                 return;
             }
 
-            // Construct full file path
-            $filePath = BASE_PATH . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $file['file_path']);
-
-            if (!file_exists($filePath)) {
-                Response::error('File does not exist on server', 404);
-                return;
-            }
-
             // Increment download count
             $stmt = $db->prepare("UPDATE files SET download_count = download_count + 1 WHERE id = ?");
             $stmt->execute([$fileId]);
@@ -491,27 +495,12 @@ class FileController
             $stmt = $db->prepare("INSERT INTO downloads (user_id, file_id) VALUES (?, ?)");
             $stmt->execute([$userId, $fileId]);
 
-            // Set appropriate content type
-            $contentType = 'application/octet-stream';
-            if ($file['file_type'] === 'pdf') {
-                $contentType = 'application/pdf';
-            } elseif ($file['file_type'] === 'docx') {
-                $contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-            }
+            // Get Cloudinary URL
+            $cloudinary = CloudinaryConfig::getInstance();
+            $fileUrl = $cloudinary->getFileUrl($file['file_path']);
 
-            // Set headers for file download
-            header('Content-Type: ' . $contentType);
-            header('Content-Disposition: attachment; filename="' . $file['file_name'] . '"');
-            header('Content-Length: ' . filesize($filePath));
-            header('Cache-Control: no-cache, must-revalidate');
-            header('Pragma: public');
-
-            // Clear output buffer
-            ob_clean();
-            flush();
-
-            // Read and output file
-            readfile($filePath);
+            // Redirect to Cloudinary URL for download
+            header('Location: ' . $fileUrl);
             exit();
         } catch (Exception $e) {
             Response::error('Download failed: ' . $e->getMessage(), 500);
@@ -548,6 +537,10 @@ class FileController
                 Response::error('File not found', 404);
                 return;
             }
+
+            // Add Cloudinary URL
+            $cloudinary = CloudinaryConfig::getInstance();
+            $file['cloudinary_url'] = $cloudinary->getFileUrl($file['file_path']);
 
             Response::success($file, 'File info retrieved successfully');
         } catch (Exception $e) {
@@ -628,11 +621,9 @@ class FileController
                 return;
             }
 
-            // Delete from filesystem
-            $filePath = BASE_PATH . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $file['file_path']);
-            if (file_exists($filePath)) {
-                unlink($filePath);
-            }
+            // Delete from Cloudinary
+            $cloudinary = CloudinaryConfig::getInstance();
+            $cloudinary->deleteFile($file['file_path']);
 
             // Delete from database (cascades to pinned_files and downloads)
             $stmt = $db->prepare("DELETE FROM files WHERE id = ?");
@@ -647,29 +638,50 @@ class FileController
     public static function getTopDownloaded()
     {
         try {
+            $logFile = BASE_PATH . DIRECTORY_SEPARATOR . 'debug.log';
+            file_put_contents($logFile, date('Y-m-d H:i:s') . " | Entering getTopDownloaded()\n", FILE_APPEND);
+
             $database = new Database();
             $db = $database->connect();
 
             if (!$db) {
+                file_put_contents($logFile, date('Y-m-d H:i:s') . " | Database connection is NULL\n", FILE_APPEND);
                 Response::error('Database connection failed', 500);
                 return;
             }
 
-            // Get top 3 most downloaded files
+            file_put_contents($logFile, date('Y-m-d H:i:s') . " | Database connected successfully\n", FILE_APPEND);
+
             $stmt = $db->prepare("
-            SELECT f.*, u.name as uploaded_by, u.email as uploader_email
-            FROM files f
-            JOIN users u ON f.user_id = u.id
-            WHERE f.download_count > 0
-            ORDER BY f.download_count DESC
-            LIMIT 3
-        ");
+                SELECT f.*, u.name as uploaded_by, u.email as uploader_email
+                FROM files f
+                JOIN users u ON f.user_id = u.id
+                WHERE f.download_count > 0
+                ORDER BY f.download_count DESC
+                LIMIT 3
+            ");
+
+            file_put_contents($logFile, date('Y-m-d H:i:s') . " | Query prepared, executing...\n", FILE_APPEND);
 
             $stmt->execute();
             $files = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+            file_put_contents($logFile, date('Y-m-d H:i:s') . " | Query executed, found " . count($files) . " files\n", FILE_APPEND);
+
+            // Add Cloudinary URLs
+            $cloudinary = CloudinaryConfig::getInstance();
+            foreach ($files as &$file) {
+                $file['cloudinary_url'] = $cloudinary->getFileUrl($file['file_path']);
+            }
+
             Response::success($files, 'Top downloaded files retrieved successfully');
+
+            file_put_contents($logFile, date('Y-m-d H:i:s') . " | Response sent successfully\n", FILE_APPEND);
         } catch (Exception $e) {
+            $logFile = BASE_PATH . DIRECTORY_SEPARATOR . 'debug.log';
+            file_put_contents($logFile, date('Y-m-d H:i:s') . " | ERROR in getTopDownloaded: " . $e->getMessage() . "\n", FILE_APPEND);
+            file_put_contents($logFile, date('Y-m-d H:i:s') . " | Stack trace: " . $e->getTraceAsString() . "\n", FILE_APPEND);
+
             Response::error('Failed to retrieve top files: ' . $e->getMessage(), 500);
         }
     }
@@ -709,13 +721,6 @@ class FileController
                 return;
             }
 
-            $sourcePath = BASE_PATH . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $file['file_path']);
-
-            if (!file_exists($sourcePath)) {
-                Response::error('Source file does not exist', 404);
-                return;
-            }
-
             // Validate conversion type
             if ($conversionType === 'pdf-to-docx' && $file['file_type'] !== 'pdf') {
                 Response::error('Only PDF files can be converted to DOCX', 400);
@@ -727,18 +732,29 @@ class FileController
                 return;
             }
 
-            // Create temp directory if it doesn't exist
+            // Download file from Cloudinary to temp location
+            $cloudinary = CloudinaryConfig::getInstance();
+            $fileUrl = $cloudinary->getFileUrl($file['file_path']);
+
             $tempDir = BASE_PATH . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'temp' . DIRECTORY_SEPARATOR;
             if (!is_dir($tempDir)) {
                 mkdir($tempDir, 0777, true);
             }
 
+            $tempSourcePath = $tempDir . uniqid() . '.' . $file['file_type'];
+            file_put_contents($tempSourcePath, file_get_contents($fileUrl));
+
             // Perform conversion
             $result = null;
             if ($conversionType === 'docx-to-pdf') {
-                $result = self::convertDocxToPdf($sourcePath, $tempDir, $file['title']);
+                $result = self::convertDocxToPdf($tempSourcePath, $tempDir, $file['title']);
             } elseif ($conversionType === 'pdf-to-docx') {
-                $result = self::convertPdfToDocx($sourcePath, $tempDir, $file['title']);
+                $result = self::convertPdfToDocx($tempSourcePath, $tempDir, $file['title']);
+            }
+
+            // Clean up source temp file
+            if (file_exists($tempSourcePath)) {
+                unlink($tempSourcePath);
             }
 
             if (!$result || !$result['success']) {
@@ -950,7 +966,6 @@ PYTHON;
             flush();
 
             readfile($filePath);
-            // DO NOT DELETE THE FILE HERE - Let frontend handle cleanup
             exit();
         } catch (Exception $e) {
             Response::error('Download failed: ' . $e->getMessage(), 500);
@@ -999,57 +1014,50 @@ PYTHON;
                 return;
             }
 
-            // Move from temp to permanent storage
+            // Upload converted file to Cloudinary
+            $cloudinary = CloudinaryConfig::getInstance();
             $fileName = basename($tempPath);
             $fileExtension = pathinfo($fileName, PATHINFO_EXTENSION);
-            $permanentDir = BASE_PATH . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'files' . DIRECTORY_SEPARATOR;
 
-            if (!is_dir($permanentDir)) {
-                mkdir($permanentDir, 0777, true);
-            }
+            $uploadResult = $cloudinary->uploadFile($tempPath, [
+                'folder' => 'college_resources/files',
+                'public_id' => uniqid() . '_' . time(),
+                'resource_type' => 'raw'
+            ]);
 
-            $newFileName = uniqid() . '_' . time() . '.' . $fileExtension;
-            $permanentPath = $permanentDir . $newFileName;
-
-            // COPY file to permanent location (don't move, so temp file remains)
-            if (!copy($tempPath, $permanentPath)) {
-                Response::error('Failed to save converted file', 500);
+            if (!$uploadResult['success']) {
+                Response::error('Failed to upload converted file to cloud storage: ' . $uploadResult['error'], 500);
                 return;
             }
-
-            // DO NOT DELETE temp file here - let frontend cleanup handle it
 
             // Create new file record
             $title = $originalFile['title'] . ' (Converted)';
             $description = 'Converted from ' . strtoupper($originalFile['file_type']) . ' to ' . strtoupper($fileExtension);
 
             $stmt = $db->prepare("
-            INSERT INTO files (user_id, title, description, file_name, file_path, file_type, 
-                             category, subject, semester, file_size, position_x, position_y) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ");
-
-            $relativePath = 'uploads/files/' . $newFileName;
+                INSERT INTO files (user_id, title, description, file_name, file_path, file_type, 
+                                 category, subject, semester, file_size, position_x, position_y) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ");
 
             $result = $stmt->execute([
                 $userId,
                 $title,
                 $description,
                 $fileName,
-                $relativePath,
+                $uploadResult['public_id'], // Store Cloudinary public_id
                 $fileExtension,
                 $originalFile['category'],
                 $originalFile['subject'],
                 $originalFile['semester'],
-                filesize($permanentPath),
+                filesize($tempPath),
                 $originalFile['position_x'] + 50,
                 $originalFile['position_y'] + 50
             ]);
 
             if (!$result) {
-                if (file_exists($permanentPath)) {
-                    unlink($permanentPath);
-                }
+                // If database fails, delete from Cloudinary
+                $cloudinary->deleteFile($uploadResult['public_id']);
                 Response::error('Failed to save file information', 500);
                 return;
             }
@@ -1058,13 +1066,16 @@ PYTHON;
 
             // Get newly created file data
             $stmt = $db->prepare("
-            SELECT f.*, u.name as uploaded_by, u.email as uploader_email
-            FROM files f
-            JOIN users u ON f.user_id = u.id
-            WHERE f.id = ?
-        ");
+                SELECT f.*, u.name as uploaded_by, u.email as uploader_email
+                FROM files f
+                JOIN users u ON f.user_id = u.id
+                WHERE f.id = ?
+            ");
             $stmt->execute([$fileId]);
             $fileData = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            // Add Cloudinary URL
+            $fileData['cloudinary_url'] = $uploadResult['secure_url'];
 
             Response::success($fileData, 'Converted file saved successfully', 201);
         } catch (Exception $e) {
