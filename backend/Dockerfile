@@ -1,19 +1,26 @@
 FROM php:8.2-cli
 
-# Install PostgreSQL extension
+# Install system dependencies including Git and PostgreSQL
 RUN apt-get update && apt-get install -y \
+    git \
+    unzip \
     libpq-dev \
-    && docker-php-ext-install pdo pdo_pgsql pgsql
+    && docker-php-ext-install pdo pdo_pgsql pgsql \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
 
 # Copy composer.phar and composer files
 COPY composer.phar ./
-COPY composer.json composer.lock* ./
+COPY composer.json ./
 
-# Install dependencies
-RUN php composer.phar install --no-dev --optimize-autoloader
+# Copy composer.lock if it exists
+COPY composer.lock* ./
+
+# Install dependencies with prefer-dist to avoid git requirement
+RUN php composer.phar install --no-dev --optimize-autoloader --prefer-dist --no-interaction
 
 # Copy application files
 COPY . .
