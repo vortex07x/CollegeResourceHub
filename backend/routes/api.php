@@ -2,30 +2,41 @@
 
 define('BASE_PATH', dirname(__DIR__));
 
-require_once BASE_PATH . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'autoload.php';
-$dotenv = Dotenv\Dotenv::createImmutable(BASE_PATH);
-$dotenv->load();
+require_once BASE_PATH . '/vendor/autoload.php';
 
-require_once BASE_PATH . DIRECTORY_SEPARATOR . 'utils' . DIRECTORY_SEPARATOR . 'Response.php';
-require_once BASE_PATH . DIRECTORY_SEPARATOR . 'controllers' . DIRECTORY_SEPARATOR . 'AuthController.php';
-require_once BASE_PATH . DIRECTORY_SEPARATOR . 'controllers' . DIRECTORY_SEPARATOR . 'FileController.php';
-require_once BASE_PATH . DIRECTORY_SEPARATOR . 'controllers' . DIRECTORY_SEPARATOR . 'AdminController.php';
-require_once BASE_PATH . DIRECTORY_SEPARATOR . 'middleware' . DIRECTORY_SEPARATOR . 'AuthMiddleware.php';
-require_once BASE_PATH . DIRECTORY_SEPARATOR . 'middleware' . DIRECTORY_SEPARATOR . 'AdminMiddleware.php';
+// Only load .env if not in production
+$isProduction = strpos($_SERVER['HTTP_HOST'] ?? '', 'render.com') !== false;
+if (!$isProduction && file_exists(BASE_PATH . '/.env')) {
+    $dotenv = Dotenv\Dotenv::createImmutable(BASE_PATH);
+    $dotenv->load();
+}
+
+require_once BASE_PATH . '/utils/Response.php';
+require_once BASE_PATH . '/controllers/AuthController.php';
+require_once BASE_PATH . '/controllers/FileController.php';
+require_once BASE_PATH . '/controllers/AdminController.php';
+require_once BASE_PATH . '/middleware/AuthMiddleware.php';
+require_once BASE_PATH . '/middleware/AdminMiddleware.php';
 
 $method = $_SERVER['REQUEST_METHOD'];
 $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 $uri = preg_replace('#^/backend#', '', $uri);
 
-// DEBUG LOGGING - Check backend/debug.log file after testing
-$logFile = BASE_PATH . DIRECTORY_SEPARATOR . 'debug.log';
-$logMessage = date('Y-m-d H:i:s') . " | Method: {$method} | URI: {$uri} | Raw: {$_SERVER['REQUEST_URI']}\n";
-file_put_contents($logFile, $logMessage, FILE_APPEND);
+// Debug logging (only in development)
+if (!$isProduction) {
+    $logFile = BASE_PATH . '/debug.log';
+    $logMessage = date('Y-m-d H:i:s') . " | Method: {$method} | URI: {$uri} | Raw: {$_SERVER['REQUEST_URI']}\n";
+    @file_put_contents($logFile, $logMessage, FILE_APPEND);
+}
 
 try {
     // Test endpoint
     if ($uri === '/api/test' && $method === 'GET') {
-        Response::success(['message' => 'API is working!'], 'Success');
+        Response::success([
+            'message' => 'API is working!',
+            'environment' => $isProduction ? 'production' : 'development',
+            'php_version' => PHP_VERSION
+        ], 'Success');
         exit();
     }
 
@@ -80,19 +91,18 @@ try {
         exit();
     }
 
-    // Public File Routes - THESE DO NOT REQUIRE AUTHENTICATION
+    // Public File Routes
     if ($uri === '/api/files/top-downloaded' && $method === 'GET') {
         FileController::getTopDownloaded();
         exit();
     }
 
-    // Make getAllFiles public - anyone can browse files
     if ($method === 'GET' && $uri === '/api/files') {
         FileController::getAllFiles();
         exit();
     }
 
-    // Admin Routes - Must come before regular file routes to avoid conflicts
+    // Admin Routes
     if ($uri === '/api/admin/dashboard' && $method === 'GET') {
         AdminMiddleware::checkAdmin();
         AdminController::getDashboardStats();
@@ -135,9 +145,7 @@ try {
         exit();
     }
 
-    // Protected File Routes - Order matters! More specific routes FIRST
-
-    // Exact match routes (highest priority) - REQUIRE AUTHENTICATION
+    // Protected File Routes - Exact matches first
     if ($method === 'GET' && $uri === '/api/files/my-files') {
         AuthMiddleware::authenticate();
         FileController::getMyFiles();
@@ -156,37 +164,32 @@ try {
         exit();
     }
 
-    // Conversion Routes - CRITICAL: Must come before other /api/files/{id} routes
+    // Conversion Routes
     if ($method === 'GET' && $uri === '/api/files/download-converted') {
-        file_put_contents($logFile, date('Y-m-d H:i:s') . " | HIT: download-converted route\n", FILE_APPEND);
         AuthMiddleware::authenticate();
         FileController::downloadConvertedFile();
         exit();
     }
 
     if ($method === 'POST' && preg_match('#^/api/files/(\d+)/convert$#', $uri, $matches)) {
-        file_put_contents($logFile, date('Y-m-d H:i:s') . " | HIT: convert route for file ID: {$matches[1]}\n", FILE_APPEND);
         AuthMiddleware::authenticate();
         FileController::convertFile($matches[1]);
         exit();
     }
 
     if ($method === 'POST' && preg_match('#^/api/files/(\d+)/save-converted$#', $uri, $matches)) {
-        file_put_contents($logFile, date('Y-m-d H:i:s') . " | HIT: save-converted route for file ID: {$matches[1]}\n", FILE_APPEND);
         AuthMiddleware::authenticate();
         FileController::saveConvertedFile($matches[1]);
         exit();
     }
 
-    // Clean up temp file after conversion operations are complete
     if ($method === 'POST' && $uri === '/api/files/cleanup-temp') {
-        file_put_contents($logFile, date('Y-m-d H:i:s') . " | HIT: cleanup-temp route\n", FILE_APPEND);
         AuthMiddleware::authenticate();
         FileController::cleanupTempFile();
         exit();
     }
 
-    // Other /api/files/{id}/action routes - REQUIRE AUTHENTICATION
+    // Other file routes with ID
     if ($method === 'GET' && preg_match('#^/api/files/(\d+)/download$#', $uri, $matches)) {
         AuthMiddleware::authenticate();
         FileController::downloadFile($matches[1]);
@@ -223,7 +226,7 @@ try {
         exit();
     }
 
-    // General /api/files/{id} routes (lowest priority - must be LAST) - REQUIRE AUTHENTICATION
+    // General file routes (lowest priority)
     if ($method === 'PUT' && preg_match('#^/api/files/(\d+)$#', $uri, $matches)) {
         AuthMiddleware::authenticate();
         FileController::updateFile($matches[1]);
@@ -236,10 +239,18 @@ try {
         exit();
     }
 
-    // Log 404s for debugging
-    file_put_contents($logFile, date('Y-m-d H:i:s') . " | 404: No route matched\n", FILE_APPEND);
+    // 404 - Route not found
     Response::error('Route not found', 404);
+    
 } catch (Exception $e) {
-    file_put_contents($logFile, date('Y-m-d H:i:s') . " | ERROR: {$e->getMessage()}\n", FILE_APPEND);
-    Response::error($e->getMessage(), 500);
+    // Log error in development
+    if (!$isProduction) {
+        $logFile = BASE_PATH . '/debug.log';
+        @file_put_contents($logFile, date('Y-m-d H:i:s') . " | ERROR: {$e->getMessage()}\n", FILE_APPEND);
+    }
+    
+    Response::error(
+        $isProduction ? 'An error occurred' : $e->getMessage(), 
+        500
+    );
 }

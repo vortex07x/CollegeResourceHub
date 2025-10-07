@@ -7,6 +7,9 @@ DROP TABLE IF EXISTS password_resets CASCADE;
 DROP TABLE IF EXISTS files CASCADE;
 DROP TABLE IF EXISTS users CASCADE;
 
+-- Drop existing function if it exists
+DROP FUNCTION IF EXISTS update_updated_at_column() CASCADE;
+
 -- Users table
 CREATE TABLE users (
     id SERIAL PRIMARY KEY,
@@ -95,11 +98,15 @@ BEGIN
     NEW.updated_at = CURRENT_TIMESTAMP;
     RETURN NEW;
 END;
-$$ language 'plpgsql';
+$$ LANGUAGE plpgsql;
 
 -- Triggers for updated_at
-CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_users_updated_at 
+    BEFORE UPDATE ON users
+    FOR EACH ROW 
+    EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER update_files_updated_at BEFORE UPDATE ON files
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_files_updated_at 
+    BEFORE UPDATE ON files
+    FOR EACH ROW 
+    EXECUTE FUNCTION update_updated_at_column();

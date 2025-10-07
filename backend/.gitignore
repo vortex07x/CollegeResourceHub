@@ -1,0 +1,32 @@
+# Environment variables
+.env
+.env.local
+.env.production
+
+# Composer
+/vendor/
+composer.phar
+
+# Logs
+*.log
+debug.log
+
+# Uploaded files (since using Cloudinary)
+/uploads/files/*
+!/uploads/files/.gitkeep
+/uploads/temp/*
+!/uploads/temp/.gitkeep
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp

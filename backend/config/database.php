@@ -1,4 +1,31 @@
 <?php
+// Load .env file if it exists (for local development)
+function loadEnv($path) {
+    if (!file_exists($path)) {
+        return;
+    }
+    
+    $lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    foreach ($lines as $line) {
+        if (strpos(trim($line), '#') === 0) {
+            continue;
+        }
+        
+        if (strpos($line, '=') !== false) {
+            list($name, $value) = explode('=', $line, 2);
+            $name = trim($name);
+            $value = trim($value, " \t\n\r\0\x0B\"'");
+            
+            if (!array_key_exists($name, $_ENV)) {
+                putenv("$name=$value");
+                $_ENV[$name] = $value;
+            }
+        }
+    }
+}
+
+// Load .env file from backend directory
+loadEnv(__DIR__ . '/../.env');
 
 class Database {
     private $host;
@@ -20,13 +47,26 @@ class Database {
         $this->conn = null;
 
         try {
+            $dsn = "pgsql:host=" . $this->host . 
+                   ";port=" . $this->port . 
+                   ";dbname=" . $this->db_name;
+            
+            // Add SSL mode for production (Render requires SSL)
+            if (strpos($this->host, 'render.com') !== false) {
+                $dsn .= ";sslmode=require";
+            }
+
             $this->conn = new PDO(
-                "pgsql:host=" . $this->host . ";port=" . $this->port . ";dbname=" . $this->db_name,
+                $dsn,
                 $this->username,
-                $this->password
+                $this->password,
+                [
+                    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                    PDO::ATTR_EMULATE_PREPARES => false
+                ]
             );
-            $this->conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-            $this->conn->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+            
         } catch(PDOException $e) {
             error_log("Connection Error: " . $e->getMessage());
             throw new Exception("Database connection failed: " . $e->getMessage());

@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { toast } from 'react-hot-toast';
 
+// Use environment variable or fallback to localhost
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
 const api = axios.create({
@@ -8,7 +9,8 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  withCredentials: false, // Changed to false for cross-origin deployment
+  withCredentials: false,
+  timeout: 30000, // 30 seconds timeout
 });
 
 // Request interceptor for adding auth token
@@ -58,6 +60,15 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    // Handle network errors
+    if (!error.response) {
+      toast.error('Network error. Please check your connection.', {
+        duration: 4000,
+        position: 'top-right',
+      });
+      return Promise.reject(error);
+    }
+
     // Only handle 401 if user was actually authenticated
     if (error.response?.status === 401) {
       const hadToken = localStorage.getItem('token');
@@ -90,6 +101,7 @@ api.interceptors.response.use(
         }, 1500);
       }
     }
+
     return Promise.reject(error);
   }
 );

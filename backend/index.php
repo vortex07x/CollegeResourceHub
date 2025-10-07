@@ -1,7 +1,15 @@
 <?php
-// Set error reporting
-error_reporting(E_ALL);
-ini_set('display_errors', 1);
+// Set error reporting based on environment
+$isProduction = strpos($_SERVER['HTTP_HOST'] ?? '', 'render.com') !== false;
+
+if ($isProduction) {
+    error_reporting(E_ALL & ~E_DEPRECATED & ~E_STRICT);
+    ini_set('display_errors', 0);
+    ini_set('log_errors', 1);
+} else {
+    error_reporting(E_ALL);
+    ini_set('display_errors', 1);
+}
 
 // Load Composer autoload FIRST
 if (file_exists(__DIR__ . '/vendor/autoload.php')) {
@@ -15,32 +23,30 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
     exit();
 }
 
-// Load Response utility before loading .env
-require_once __DIR__ . DIRECTORY_SEPARATOR . 'utils' . DIRECTORY_SEPARATOR . 'Response.php';
+// Load Response utility
+require_once __DIR__ . '/utils/Response.php';
 
-// Load environment variables with better error handling
+// Load environment variables
 try {
-    // Check if .env file exists
-    $envPath = __DIR__;
-    $envFile = $envPath . DIRECTORY_SEPARATOR . '.env';
-    
-    if (!file_exists($envFile)) {
-        throw new Exception('.env file not found at: ' . $envFile);
+    // For production (Render), environment variables are already set
+    // For local development, load from .env file
+    if (!$isProduction && file_exists(__DIR__ . '/.env')) {
+        $dotenv = Dotenv\Dotenv::createImmutable(__DIR__);
+        $dotenv->load();
     }
-    
-    if (!is_readable($envFile)) {
-        throw new Exception('.env file is not readable. Check file permissions.');
-    }
-    
-    $dotenv = Dotenv\Dotenv::createImmutable($envPath);
-    $dotenv->load();
     
     // Verify required environment variables
     $required = ['DB_HOST', 'DB_NAME', 'DB_USER', 'JWT_SECRET', 'CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET'];
+    $missing = [];
+    
     foreach ($required as $var) {
         if (!isset($_ENV[$var]) && !getenv($var)) {
-            throw new Exception("Required environment variable missing: {$var}");
+            $missing[] = $var;
         }
+    }
+    
+    if (!empty($missing)) {
+        throw new Exception("Required environment variables missing: " . implode(', ', $missing));
     }
     
 } catch (Exception $e) {
@@ -48,36 +54,42 @@ try {
     echo json_encode([
         'success' => false,
         'message' => 'Environment configuration error',
-        'error' => $e->getMessage(),
-        'debug' => [
-            'env_path' => __DIR__,
-            'env_file_exists' => file_exists(__DIR__ . '/.env'),
-            'env_file_readable' => is_readable(__DIR__ . '/.env')
-        ]
+        'error' => $isProduction ? 'Configuration error' : $e->getMessage()
     ]);
     exit();
 }
 
-// CORS Headers - NOW we can use environment variables
+// CORS Headers - Get allowed origin from environment
 $allowedOrigin = $_ENV['FRONTEND_URL'] ?? getenv('FRONTEND_URL') ?? 'http://localhost:5173';
-
-// Remove trailing slash if present
 $allowedOrigin = rtrim($allowedOrigin, '/');
+
+// For development, allow localhost variations
+if (!$isProduction) {
+    $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+    if (strpos($origin, 'localhost') !== false || strpos($origin, '127.0.0.1') !== false) {
+        $allowedOrigin = $origin;
+    }
+}
 
 header('Access-Control-Allow-Origin: ' . $allowedOrigin);
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS, PATCH');
-header('Access-Control-Allow-Headers: Content-Type, Authorization');
+header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
 header('Access-Control-Allow-Credentials: true');
 header('Access-Control-Max-Age: 3600');
 
-// Handle preflight requests BEFORE setting Content-Type
+// Handle preflight requests
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(200);
     exit();
 }
 
-// NOW set Content-Type for actual requests
-header('Content-Type: application/json');
+// Set Content-Type for actual requests
+header('Content-Type: application/json; charset=utf-8');
+
+// Set security headers
+header('X-Content-Type-Options: nosniff');
+header('X-Frame-Options: DENY');
+header('X-XSS-Protection: 1; mode=block');
 
 // Load and execute routes
-require_once __DIR__ . DIRECTORY_SEPARATOR . 'routes' . DIRECTORY_SEPARATOR . 'api.php';
+require_once __DIR__ . '/routes/api.php';
