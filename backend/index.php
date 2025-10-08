@@ -81,14 +81,35 @@ try {
     exit();
 }
 
-// CORS Headers - Get allowed origin from environment
-$allowedOrigin = env('FRONTEND_URL', 'http://localhost:5173');
-$allowedOrigin = rtrim($allowedOrigin, '/');
+// CORS Headers - Enhanced for production
+$allowedOrigins = [
+    env('FRONTEND_URL', 'http://localhost:5173'),
+    'http://localhost:5173',
+    'http://localhost:3000',
+    'http://127.0.0.1:5173',
+];
 
-// For development, allow localhost variations
-if (!$isProduction) {
-    $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+// Remove trailing slashes from all origins
+$allowedOrigins = array_map(function($origin) {
+    return rtrim($origin, '/');
+}, $allowedOrigins);
+
+// Get the request origin
+$origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+
+// Determine which origin to allow
+$allowedOrigin = $allowedOrigins[0]; // Default to first origin
+
+if ($isProduction) {
+    // In production, check if origin is in allowed list or is a Vercel domain
+    if (in_array($origin, $allowedOrigins) || strpos($origin, '.vercel.app') !== false) {
+        $allowedOrigin = $origin;
+    }
+} else {
+    // In development, allow any localhost/127.0.0.1 origin
     if (strpos($origin, 'localhost') !== false || strpos($origin, '127.0.0.1') !== false) {
+        $allowedOrigin = $origin;
+    } elseif (in_array($origin, $allowedOrigins)) {
         $allowedOrigin = $origin;
     }
 }
