@@ -859,13 +859,13 @@ class FileController
 
             // Create new Word document
             $phpWord = new \PhpOffice\PhpWord\PhpWord();
-            
+
             // Add a section
             $section = $phpWord->addSection();
 
             // Split text into paragraphs
             $paragraphs = explode("\n\n", $text);
-            
+
             foreach ($paragraphs as $paragraph) {
                 $paragraph = trim($paragraph);
                 if (!empty($paragraph)) {
