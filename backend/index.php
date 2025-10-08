@@ -11,39 +11,8 @@ if ($isProduction) {
     ini_set('display_errors', 1);
 }
 
-// ============================================
-// CORS HEADERS - Handled by .htaccess, but we set them here too for safety
-// ============================================
-
-$origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-
-// Only set headers if origin is valid
-if (!empty($origin)) {
-    // Check if origin is from Vercel or localhost
-    if (strpos($origin, '.vercel.app') !== false || 
-        strpos($origin, 'localhost') !== false || 
-        strpos($origin, '127.0.0.1') !== false) {
-        
-        header('Access-Control-Allow-Origin: ' . $origin);
-        header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS, PATCH');
-        header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, Accept');
-        header('Access-Control-Allow-Credentials: true');
-        header('Access-Control-Max-Age: 3600');
-    }
-}
-
-// Handle preflight requests
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    http_response_code(200);
-    exit(0);
-}
-
 // Set Content-Type for actual requests
 header('Content-Type: application/json; charset=utf-8');
-
-// ============================================
-// END OF CORS CONFIGURATION
-// ============================================
 
 // Load Composer autoload FIRST
 if (file_exists(__DIR__ . '/vendor/autoload.php')) {
