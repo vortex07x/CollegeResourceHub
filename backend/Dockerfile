@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Enable Apache modules
+# Enable Apache modules - headers is critical for CORS
 RUN a2enmod rewrite headers
 
 # Install Composer
@@ -38,6 +38,9 @@ RUN composer dump-autoload --optimize
 
 # Configure Apache to use PORT environment variable
 RUN sed -i 's/80/${PORT}/g' /etc/apache2/sites-available/000-default.conf /etc/apache2/ports.conf
+
+# Enable .htaccess overrides - CRITICAL FOR CORS
+RUN sed -i '/<Directory \/var\/www\/>/,/<\/Directory>/ s/AllowOverride None/AllowOverride All/' /etc/apache2/apache2.conf
 
 # Expose port
 EXPOSE 8080
