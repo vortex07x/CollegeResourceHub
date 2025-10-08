@@ -556,7 +556,6 @@ class FileController
                 return;
             }
 
-            $userId = $_SERVER['user_id'];
             $data = json_decode(file_get_contents('php://input'), true);
 
             if (!$data) {
@@ -575,12 +574,12 @@ class FileController
                 return;
             }
 
-            // Verify file belongs to user
-            $stmt = $db->prepare("SELECT id FROM files WHERE id = ? AND user_id = ?");
-            $stmt->execute([$fileId, $userId]);
+            // Just check if file exists (removed user_id check)
+            $stmt = $db->prepare("SELECT id FROM files WHERE id = ?");
+            $stmt->execute([$fileId]);
 
             if (!$stmt->fetch()) {
-                Response::error('File not found or unauthorized', 404);
+                Response::error('File not found', 404);
                 return;
             }
 
