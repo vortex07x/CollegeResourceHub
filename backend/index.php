@@ -83,11 +83,17 @@ try {
 
 // CORS Headers - Enhanced for production
 $allowedOrigins = [
-    env('FRONTEND_URL', 'http://localhost:5173'),
+    'https://college-resource-hub-azure.vercel.app',
     'http://localhost:5173',
     'http://localhost:3000',
     'http://127.0.0.1:5173',
 ];
+
+// Add FRONTEND_URL from environment if set
+$frontendUrl = env('FRONTEND_URL');
+if ($frontendUrl && !in_array($frontendUrl, $allowedOrigins)) {
+    array_unshift($allowedOrigins, rtrim($frontendUrl, '/'));
+}
 
 // Remove trailing slashes from all origins
 $allowedOrigins = array_map(function($origin) {
@@ -98,31 +104,43 @@ $allowedOrigins = array_map(function($origin) {
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
 
 // Determine which origin to allow
-$allowedOrigin = $allowedOrigins[0]; // Default to first origin
+$allowedOrigin = '';
 
 if ($isProduction) {
-    // In production, check if origin is in allowed list or is a Vercel domain
-    if (in_array($origin, $allowedOrigins) || strpos($origin, '.vercel.app') !== false) {
-        $allowedOrigin = $origin;
+    // In production, check if origin matches exactly or is a Vercel domain
+    foreach ($allowedOrigins as $allowed) {
+        if ($origin === $allowed || strpos($origin, '.vercel.app') !== false) {
+            $allowedOrigin = $origin;
+            break;
+        }
+    }
+    // Fallback to first allowed origin if no match
+    if (empty($allowedOrigin)) {
+        $allowedOrigin = $allowedOrigins[0];
     }
 } else {
-    // In development, allow any localhost/127.0.0.1 origin
+    // In development, allow localhost
     if (strpos($origin, 'localhost') !== false || strpos($origin, '127.0.0.1') !== false) {
         $allowedOrigin = $origin;
     } elseif (in_array($origin, $allowedOrigins)) {
         $allowedOrigin = $origin;
+    } else {
+        $allowedOrigin = $allowedOrigins[0];
     }
 }
 
+// Set CORS headers - ALWAYS set them
 header('Access-Control-Allow-Origin: ' . $allowedOrigin);
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS, PATCH');
 header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
 header('Access-Control-Allow-Credentials: true');
 header('Access-Control-Max-Age: 3600');
 
-// Handle preflight requests
+// Handle preflight requests - MUST respond with 200 and stop
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(200);
+    header('Content-Length: 0');
+    header('Content-Type: text/plain');
     exit();
 }
 
