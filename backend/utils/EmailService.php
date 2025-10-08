@@ -7,24 +7,59 @@ class EmailService {
     private $apiUrl = 'https://api.brevo.com/v3/smtp/email';
 
     public function __construct() {
-        $this->apiKey = $_ENV['BREVO_API_KEY'] ?? getenv('BREVO_API_KEY');
-        $this->senderEmail = $_ENV['BREVO_SENDER_EMAIL'] ?? getenv('BREVO_SENDER_EMAIL');
-        $this->senderName = $_ENV['BREVO_SENDER_NAME'] ?? getenv('BREVO_SENDER_NAME') ?? 'College Hub';
+        // Try multiple methods to get environment variables
+        $this->apiKey = $this->getEnvVar('BREVO_API_KEY');
+        $this->senderEmail = $this->getEnvVar('BREVO_SENDER_EMAIL');
+        $this->senderName = $this->getEnvVar('BREVO_SENDER_NAME', 'College Resource Hub');
+
+        // Log for debugging (only in development)
+        $isProduction = strpos($_SERVER['HTTP_HOST'] ?? '', 'render.com') !== false;
+        if (!$isProduction) {
+            error_log('EmailService Debug:');
+            error_log('API Key present: ' . (!empty($this->apiKey) ? 'Yes' : 'No'));
+            error_log('Sender Email: ' . ($this->senderEmail ?: 'Not set'));
+            error_log('Sender Name: ' . $this->senderName);
+        }
 
         if (empty($this->apiKey)) {
-            error_log('EmailService Error: BREVO_API_KEY not set');
-            throw new Exception('Email service not configured - API key missing');
+            $error = 'Email service not configured - BREVO_API_KEY is missing';
+            error_log('EmailService Error: ' . $error);
+            throw new Exception($error);
         }
 
         if (empty($this->senderEmail)) {
-            error_log('EmailService Error: BREVO_SENDER_EMAIL not set');
-            throw new Exception('Email service not configured - Sender email missing');
+            $error = 'Email service not configured - BREVO_SENDER_EMAIL is missing';
+            error_log('EmailService Error: ' . $error);
+            throw new Exception($error);
         }
+    }
+
+    /**
+     * Get environment variable with fallback methods
+     */
+    private function getEnvVar($key, $default = null) {
+        // Method 1: $_ENV superglobal
+        if (isset($_ENV[$key]) && !empty($_ENV[$key])) {
+            return $_ENV[$key];
+        }
+
+        // Method 2: getenv() function
+        $value = getenv($key);
+        if ($value !== false && !empty($value)) {
+            return $value;
+        }
+
+        // Method 3: $_SERVER superglobal
+        if (isset($_SERVER[$key]) && !empty($_SERVER[$key])) {
+            return $_SERVER[$key];
+        }
+
+        return $default;
     }
 
     public function sendOTP($recipientEmail, $recipientName, $otp) {
         try {
-            $subject = 'Password Reset OTP - College Hub';
+            $subject = 'Password Reset OTP - College Resource Hub';
             $htmlContent = $this->getOTPEmailTemplate($otp, $recipientName);
             return $this->sendEmail($recipientEmail, $recipientName, $subject, $htmlContent);
         } catch (Exception $e) {
@@ -38,7 +73,7 @@ class EmailService {
 
     public function sendPasswordResetConfirmation($recipientEmail, $recipientName) {
         try {
-            $subject = 'Password Reset Successful - College Hub';
+            $subject = 'Password Reset Successful - College Resource Hub';
             $htmlContent = $this->getPasswordResetConfirmationTemplate($recipientName);
             return $this->sendEmail($recipientEmail, $recipientName, $subject, $htmlContent);
         } catch (Exception $e) {
@@ -75,6 +110,7 @@ class EmailService {
             'api-key: ' . $this->apiKey,
             'content-type: application/json'
         ]);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 30); // 30 second timeout
 
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -133,7 +169,7 @@ class EmailService {
         <body>
             <div class="container">
                 <div class="header">
-                    <h1>📚 College Hub</h1>
+                    <h1>📚 College Resource Hub</h1>
                 </div>
                 <div class="content">
                     <h2>Hello ' . htmlspecialchars($name) . ',</h2>
@@ -148,14 +184,14 @@ class EmailService {
                     <p><strong>Security Tips:</strong></p>
                     <ul style="color: #666; line-height: 1.8;">
                         <li>Do not share this OTP with anyone</li>
-                        <li>College Hub will never ask for your OTP via phone or email</li>
+                        <li>College Resource Hub will never ask for your OTP via phone or email</li>
                         <li>If you did not request this, please ignore this email</li>
                     </ul>
                     
                     <p style="color: #666; margin-top: 30px;">If you have any questions, feel free to contact our support team.</p>
                 </div>
                 <div class="footer">
-                    <p>&copy; 2025 College Hub. All rights reserved.</p>
+                    <p>&copy; 2025 College Resource Hub. All rights reserved.</p>
                     <p>This is an automated email, please do not reply.</p>
                 </div>
             </div>
@@ -183,7 +219,7 @@ class EmailService {
         <body>
             <div class="container">
                 <div class="header">
-                    <h1>📚 College Hub</h1>
+                    <h1>📚 College Resource Hub</h1>
                 </div>
                 <div class="content">
                     <div class="success-icon">✅</div>
@@ -193,7 +229,7 @@ class EmailService {
                     <p style="color: #ef4444; margin-top: 30px;"><strong>If you did not make this change, please contact us immediately.</strong></p>
                 </div>
                 <div class="footer">
-                    <p>&copy; 2025 College Hub. All rights reserved.</p>
+                    <p>&copy; 2025 College Resource Hub. All rights reserved.</p>
                     <p>This is an automated email, please do not reply.</p>
                 </div>
             </div>
