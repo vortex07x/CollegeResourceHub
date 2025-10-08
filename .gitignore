@@ -33,4 +33,4 @@ npm-debug.log*
 
 # Deployment
 backend/render.yaml
-frontend/vercel.json
+# frontend/vercel.json
