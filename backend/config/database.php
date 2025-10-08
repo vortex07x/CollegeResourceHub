@@ -40,7 +40,7 @@ class Database {
         $this->port = $_ENV['DB_PORT'] ?? getenv('DB_PORT') ?? '5432';
         $this->db_name = $_ENV['DB_NAME'] ?? getenv('DB_NAME');
         $this->username = $_ENV['DB_USER'] ?? getenv('DB_USER');
-        $this->password = $_ENV['DB_PASS'] ?? getenv('DB_PASS');
+        $this->password = $_ENV['DB_PASSWORD'] ?? getenv('DB_PASSWORD');  // CHANGED: DB_PASS → DB_PASSWORD
     }
 
     public function connect() {
