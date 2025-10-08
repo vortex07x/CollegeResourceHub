@@ -192,8 +192,6 @@ class User
             file_put_contents($logFile, "Email: " . $email . "\n", FILE_APPEND);
             
             $query = "SELECT name FROM " . $this->table . " WHERE email = :email LIMIT 1";
-            file_put_contents($logFile, "Query: " . $query . "\n", FILE_APPEND);
-            
             $stmt = $this->conn->prepare($query);
             $stmt->bindParam(':email', $email);
             $stmt->execute();
@@ -207,45 +205,38 @@ class User
             file_put_contents($logFile, "User found: " . json_encode($user) . "\n", FILE_APPEND);
 
             // Generate 6-digit OTP
-            $otp = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+            $otp = str_pad(random_int(100000, 999999), 6, '0', STR_PAD_LEFT);
             file_put_contents($logFile, "Generated OTP: " . $otp . "\n", FILE_APPEND);
 
-            $expiryMinutes = $_ENV['OTP_EXPIRY_MINUTES'] ?? getenv('OTP_EXPIRY_MINUTES') ?? 10;
+            // Set expiry to 15 minutes (increased from 10)
+            $expiryMinutes = 15;
             file_put_contents($logFile, "Expiry minutes: " . $expiryMinutes . "\n", FILE_APPEND);
-            
-            $expiresAt = date('Y-m-d H:i:s', strtotime("+{$expiryMinutes} minutes"));
-            file_put_contents($logFile, "Expires at: " . $expiresAt . "\n", FILE_APPEND);
 
             // Delete old unused OTPs for this email
             $deleteQuery = "DELETE FROM " . $this->password_resets_table . " 
                            WHERE email = :email AND is_used = FALSE";
-            file_put_contents($logFile, "Delete query: " . $deleteQuery . "\n", FILE_APPEND);
-            
             $deleteStmt = $this->conn->prepare($deleteQuery);
             $deleteStmt->bindParam(':email', $email);
             $deleteStmt->execute();
             file_put_contents($logFile, "Deleted " . $deleteStmt->rowCount() . " old OTPs\n", FILE_APPEND);
 
-            // Hash the OTP before storing (security best practice)
+            // Hash the OTP before storing
             $hashedOTP = password_hash($otp, PASSWORD_DEFAULT);
-            file_put_contents($logFile, "Hashed OTP (first 20 chars): " . substr($hashedOTP, 0, 20) . "...\n", FILE_APPEND);
 
-            // Insert new OTP
+            // Insert new OTP with PostgreSQL interval for expiry
             $insertQuery = "INSERT INTO " . $this->password_resets_table . " 
-                           (email, otp, expires_at) 
-                           VALUES (:email, :otp, :expires_at)";
-            file_put_contents($logFile, "Insert query: " . $insertQuery . "\n", FILE_APPEND);
+                           (email, otp, expires_at, created_at) 
+                           VALUES (:email, :otp, NOW() + INTERVAL '{$expiryMinutes} minutes', NOW())";
             
             $insertStmt = $this->conn->prepare($insertQuery);
             $insertStmt->bindParam(':email', $email);
             $insertStmt->bindParam(':otp', $hashedOTP);
-            $insertStmt->bindParam(':expires_at', $expiresAt);
 
             if ($insertStmt->execute()) {
-                file_put_contents($logFile, "OTP inserted successfully\n", FILE_APPEND);
+                file_put_contents($logFile, "OTP inserted successfully. Expires in {$expiryMinutes} minutes\n", FILE_APPEND);
                 return [
                     'success' => true,
-                    'otp' => $otp, // Return plain OTP to send via email
+                    'otp' => $otp,
                     'name' => $user['name']
                 ];
             }
@@ -254,84 +245,121 @@ class User
             return ['success' => false, 'message' => 'Failed to generate OTP'];
             
         } catch (PDOException $e) {
-            file_put_contents($logFile, "PDO EXCEPTION in createPasswordResetOTP: " . $e->getMessage() . "\n", FILE_APPEND);
-            file_put_contents($logFile, "Stack: " . $e->getTraceAsString() . "\n", FILE_APPEND);
+            file_put_contents($logFile, "PDO EXCEPTION: " . $e->getMessage() . "\n", FILE_APPEND);
             throw $e;
         } catch (Exception $e) {
-            file_put_contents($logFile, "EXCEPTION in createPasswordResetOTP: " . $e->getMessage() . "\n", FILE_APPEND);
-            file_put_contents($logFile, "Stack: " . $e->getTraceAsString() . "\n", FILE_APPEND);
+            file_put_contents($logFile, "EXCEPTION: " . $e->getMessage() . "\n", FILE_APPEND);
             throw $e;
         }
     }
 
     public function verifyOTP($email, $otp)
     {
-        $query = "SELECT id, otp, expires_at, is_used 
-                  FROM " . $this->password_resets_table . " 
-                  WHERE email = :email 
-                  ORDER BY created_at DESC 
-                  LIMIT 1";
+        $logFile = __DIR__ . '/../user-otp-debug.log';
+        
+        try {
+            file_put_contents($logFile, "\n=== verifyOTP ===\n" . date('Y-m-d H:i:s') . "\n", FILE_APPEND);
+            file_put_contents($logFile, "Email: " . $email . "\n", FILE_APPEND);
+            file_put_contents($logFile, "OTP received: " . $otp . "\n", FILE_APPEND);
+            
+            $query = "SELECT id, otp, expires_at, is_used, created_at, 
+                      EXTRACT(EPOCH FROM (expires_at - NOW())) as seconds_until_expiry
+                      FROM " . $this->password_resets_table . " 
+                      WHERE email = :email 
+                      ORDER BY created_at DESC 
+                      LIMIT 1";
 
-        $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':email', $email);
-        $stmt->execute();
+            $stmt = $this->conn->prepare($query);
+            $stmt->bindParam(':email', $email);
+            $stmt->execute();
 
-        if ($stmt->rowCount() === 0) {
-            return ['valid' => false, 'message' => 'Invalid OTP'];
+            if ($stmt->rowCount() === 0) {
+                file_put_contents($logFile, "No OTP found for email\n", FILE_APPEND);
+                return ['valid' => false, 'message' => 'Invalid or expired OTP'];
+            }
+
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            file_put_contents($logFile, "OTP record found:\n", FILE_APPEND);
+            file_put_contents($logFile, "  ID: " . $row['id'] . "\n", FILE_APPEND);
+            file_put_contents($logFile, "  Created: " . $row['created_at'] . "\n", FILE_APPEND);
+            file_put_contents($logFile, "  Expires: " . $row['expires_at'] . "\n", FILE_APPEND);
+            file_put_contents($logFile, "  Seconds until expiry: " . $row['seconds_until_expiry'] . "\n", FILE_APPEND);
+            file_put_contents($logFile, "  Is used: " . json_encode($row['is_used']) . "\n", FILE_APPEND);
+
+            // Check if OTP is already used
+            if ($row['is_used'] === true || $row['is_used'] === 't' || $row['is_used'] === '1') {
+                file_put_contents($logFile, "OTP already used\n", FILE_APPEND);
+                return ['valid' => false, 'message' => 'OTP has already been used'];
+            }
+
+            // Check if expired using PostgreSQL calculation
+            if ($row['seconds_until_expiry'] <= 0) {
+                file_put_contents($logFile, "OTP expired (" . abs($row['seconds_until_expiry']) . " seconds ago)\n", FILE_APPEND);
+                return ['valid' => false, 'message' => 'OTP has expired. Please request a new one.'];
+            }
+
+            // Verify hashed OTP
+            file_put_contents($logFile, "Verifying OTP hash...\n", FILE_APPEND);
+            if (!password_verify($otp, $row['otp'])) {
+                file_put_contents($logFile, "OTP verification failed - incorrect OTP\n", FILE_APPEND);
+                return ['valid' => false, 'message' => 'Invalid OTP'];
+            }
+
+            file_put_contents($logFile, "OTP verified successfully!\n", FILE_APPEND);
+            return ['valid' => true, 'reset_id' => $row['id']];
+            
+        } catch (PDOException $e) {
+            file_put_contents($logFile, "PDO EXCEPTION in verifyOTP: " . $e->getMessage() . "\n", FILE_APPEND);
+            throw $e;
+        } catch (Exception $e) {
+            file_put_contents($logFile, "EXCEPTION in verifyOTP: " . $e->getMessage() . "\n", FILE_APPEND);
+            throw $e;
         }
-
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        // PostgreSQL boolean handling - returns actual boolean
-        $isUsed = $row['is_used'];
-        // Convert to boolean properly
-        if ($isUsed === true || $isUsed === 't' || $isUsed === 1 || $isUsed === '1' || $isUsed === 'true') {
-            return ['valid' => false, 'message' => 'OTP already used'];
-        }
-
-        // Check if expired
-        if (strtotime($row['expires_at']) < time()) {
-            return ['valid' => false, 'message' => 'OTP expired'];
-        }
-
-        // Verify hashed OTP
-        if (!password_verify($otp, $row['otp'])) {
-            return ['valid' => false, 'message' => 'Invalid OTP'];
-        }
-
-        return ['valid' => true, 'reset_id' => $row['id']];
     }
 
     public function resetPassword($email, $otp, $newPassword)
     {
-        $verification = $this->verifyOTP($email, $otp);
+        $logFile = __DIR__ . '/../user-otp-debug.log';
+        
+        try {
+            file_put_contents($logFile, "\n=== resetPassword ===\n" . date('Y-m-d H:i:s') . "\n", FILE_APPEND);
+            
+            $verification = $this->verifyOTP($email, $otp);
 
-        if (!$verification['valid']) {
-            return $verification;
+            if (!$verification['valid']) {
+                file_put_contents($logFile, "Verification failed: " . $verification['message'] . "\n", FILE_APPEND);
+                return $verification;
+            }
+
+            $hashedPassword = password_hash($newPassword, PASSWORD_BCRYPT);
+
+            $updateQuery = "UPDATE " . $this->table . " 
+                           SET password = :password, updated_at = CURRENT_TIMESTAMP 
+                           WHERE email = :email";
+            $updateStmt = $this->conn->prepare($updateQuery);
+            $updateStmt->bindParam(':password', $hashedPassword);
+            $updateStmt->bindParam(':email', $email);
+
+            if ($updateStmt->execute()) {
+                // Mark OTP as used
+                $markUsedQuery = "UPDATE " . $this->password_resets_table . " 
+                                 SET is_used = TRUE 
+                                 WHERE id = :reset_id";
+                $markUsedStmt = $this->conn->prepare($markUsedQuery);
+                $markUsedStmt->bindParam(':reset_id', $verification['reset_id']);
+                $markUsedStmt->execute();
+
+                file_put_contents($logFile, "Password reset successful, OTP marked as used\n", FILE_APPEND);
+                return ['success' => true, 'message' => 'Password reset successful'];
+            }
+
+            file_put_contents($logFile, "Failed to update password\n", FILE_APPEND);
+            return ['success' => false, 'message' => 'Failed to reset password'];
+            
+        } catch (Exception $e) {
+            file_put_contents($logFile, "EXCEPTION in resetPassword: " . $e->getMessage() . "\n", FILE_APPEND);
+            throw $e;
         }
-
-        $hashedPassword = password_hash($newPassword, PASSWORD_BCRYPT);
-
-        $updateQuery = "UPDATE " . $this->table . " 
-                       SET password = :password, updated_at = CURRENT_TIMESTAMP 
-                       WHERE email = :email";
-        $updateStmt = $this->conn->prepare($updateQuery);
-        $updateStmt->bindParam(':password', $hashedPassword);
-        $updateStmt->bindParam(':email', $email);
-
-        if ($updateStmt->execute()) {
-            // Mark OTP as used
-            $markUsedQuery = "UPDATE " . $this->password_resets_table . " 
-                             SET is_used = TRUE 
-                             WHERE id = :reset_id";
-            $markUsedStmt = $this->conn->prepare($markUsedQuery);
-            $markUsedStmt->bindParam(':reset_id', $verification['reset_id']);
-            $markUsedStmt->execute();
-
-            return ['success' => true, 'message' => 'Password reset successful'];
-        }
-
-        return ['success' => false, 'message' => 'Failed to reset password'];
     }
 
     public function cleanupExpiredOTPs()

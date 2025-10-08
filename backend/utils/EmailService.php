@@ -178,7 +178,7 @@ class EmailService {
                     <div class="otp-box">
                         <p style="margin: 0; color: #666; font-size: 14px;">Your OTP Code</p>
                         <div class="otp-code">' . $otp . '</div>
-                        <p style="margin: 10px 0 0 0; color: #999; font-size: 12px;">Valid for 10 minutes</p>
+                        <p style="margin: 10px 0 0 0; color: #999; font-size: 12px;">Valid for 15 minutes</p>
                     </div>
                     
                     <p><strong>Security Tips:</strong></p>
