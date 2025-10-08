@@ -42,21 +42,21 @@ const EditFileModal = ({ isOpen, onClose, onUpdate, fileData }) => {
 
   const validateForm = () => {
     const newErrors = {};
-    
+
     if (!formData.title.trim()) {
       newErrors.title = 'Title is required';
     }
     if (!formData.subject.trim()) {
       newErrors.subject = 'Subject is required';
     }
-    
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     if (!validateForm()) {
       return;
     }
@@ -64,7 +64,8 @@ const EditFileModal = ({ isOpen, onClose, onUpdate, fileData }) => {
     setIsUpdating(true);
 
     try {
-      await onUpdate(fileData.id, formData);
+      // ✅ Pass fileId separately, then formData
+      await onUpdate(formData);  // Changed from onUpdate(fileData.id, formData)
       handleClose();
     } catch (error) {
       setErrors({ submit: error.message || 'Update failed. Please try again.' });

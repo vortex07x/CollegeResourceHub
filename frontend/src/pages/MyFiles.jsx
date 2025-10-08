@@ -42,7 +42,7 @@ const MyFiles = () => {
     } catch (error) {
       console.error('Failed to load files:', error);
       setIsWakingUp(false);
-      
+
       if (error.code === 'ECONNABORTED') {
         setLoadError('timeout');
         toast.error('Server is taking longer than expected. Please try refreshing.', {
@@ -204,8 +204,8 @@ const MyFiles = () => {
             {loadError === 'timeout' ? 'Server Starting Up' : 'Failed to Load Files'}
           </h3>
           <p className="text-gray-400 mb-6">
-            {loadError === 'timeout' 
-              ? 'The server needs more time to wake up. This happens after periods of inactivity.' 
+            {loadError === 'timeout'
+              ? 'The server needs more time to wake up. This happens after periods of inactivity.'
               : 'Unable to fetch your files right now. Please check your connection and try again.'}
           </p>
           <button
@@ -267,21 +267,19 @@ const MyFiles = () => {
           <div className="flex items-center gap-2 bg-[#0A0A0A] border border-white/10 rounded-lg p-1">
             <button
               onClick={() => setActiveTab('uploads')}
-              className={`px-6 py-2 rounded-md font-medium transition-all ${
-                activeTab === 'uploads'
+              className={`px-6 py-2 rounded-md font-medium transition-all ${activeTab === 'uploads'
                   ? 'bg-purple-500 text-white'
                   : 'text-gray-400 hover:text-white'
-              }`}
+                }`}
             >
               My Uploads
             </button>
             <button
               onClick={() => setActiveTab('pinned')}
-              className={`px-6 py-2 rounded-md font-medium transition-all ${
-                activeTab === 'pinned'
+              className={`px-6 py-2 rounded-md font-medium transition-all ${activeTab === 'pinned'
                   ? 'bg-purple-500 text-white'
                   : 'text-gray-400 hover:text-white'
-              }`}
+                }`}
             >
               Pinned
             </button>
@@ -290,21 +288,19 @@ const MyFiles = () => {
           <div className="flex items-center gap-2 bg-[#0A0A0A] border border-white/10 rounded-lg p-1">
             <button
               onClick={() => setViewMode('grid')}
-              className={`p-2 rounded transition-all ${
-                viewMode === 'grid'
+              className={`p-2 rounded transition-all ${viewMode === 'grid'
                   ? 'bg-purple-500 text-white'
                   : 'text-gray-400 hover:text-white'
-              }`}
+                }`}
             >
               <Grid3x3 size={20} />
             </button>
             <button
               onClick={() => setViewMode('list')}
-              className={`p-2 rounded transition-all ${
-                viewMode === 'list'
+              className={`p-2 rounded transition-all ${viewMode === 'list'
                   ? 'bg-purple-500 text-white'
                   : 'text-gray-400 hover:text-white'
-              }`}
+                }`}
             >
               <List size={20} />
             </button>
@@ -501,18 +497,27 @@ const MyFiles = () => {
       </div>
 
       {/* Modals */}
-      {showEditModal && (
+      {showEditModal && editingFile && (
         <EditFileModal
-          file={editingFile}
-          onClose={() => setShowEditModal(false)}
-          onSave={handleEditSave}
+          isOpen={showEditModal}
+          onClose={() => {
+            setShowEditModal(false);
+            setEditingFile(null);
+          }}
+          onUpdate={handleEditSave}
+          fileData={editingFile}
         />
       )}
 
-      {showInfoModal && (
+      {showInfoModal && viewingFile && (
         <FileInfoModal
-          file={viewingFile}
-          onClose={() => setShowInfoModal(false)}
+          isOpen={showInfoModal}
+          onClose={() => {
+            setShowInfoModal(false);
+            setViewingFile(null);
+          }}
+          fileInfo={viewingFile}
+          isAuthenticated={true}
         />
       )}
     </div>
