@@ -775,14 +775,14 @@ class FileController
             if (!class_exists('PhpOffice\PhpWord\IOFactory')) {
                 return [
                     'success' => false,
-                    'message' => 'PhpWord library not installed. Please run: composer require phpoffice/phpword'
+                    'message' => 'PhpWord library not installed. Please run: php composer.phar require phpoffice/phpword'
                 ];
             }
 
             if (!class_exists('Dompdf\Dompdf')) {
                 return [
                     'success' => false,
-                    'message' => 'Dompdf library not installed. Please run: composer require dompdf/dompdf'
+                    'message' => 'Dompdf library not installed. Please run: php composer.phar require dompdf/dompdf'
                 ];
             }
 
@@ -837,63 +837,52 @@ class FileController
     private static function convertPdfToDocx($sourcePath, $tempDir, $title)
     {
         try {
-            // PDF to DOCX conversion is complex and requires external tools
-            // For production, you should use CloudConvert API or similar services
-
-            // Check if pdf2docx Python library is available
-            $pythonCheck = shell_exec('python --version 2>&1');
-
-            if (strpos($pythonCheck, 'Python') === false) {
+            // Check if required libraries are available
+            if (!class_exists('Smalot\PdfParser\Parser')) {
                 return [
                     'success' => false,
-                    'message' => 'Python is not installed. PDF to DOCX conversion requires Python with pdf2docx library.'
+                    'message' => 'PdfParser library not installed. Please run: php composer.phar require smalot/pdfparser'
                 ];
+            }
+
+            if (!class_exists('PhpOffice\PhpWord\PhpWord')) {
+                return [
+                    'success' => false,
+                    'message' => 'PhpWord library not installed. Please run: php composer.phar require phpoffice/phpword'
+                ];
+            }
+
+            // Parse PDF
+            $parser = new \Smalot\PdfParser\Parser();
+            $pdf = $parser->parseFile($sourcePath);
+            $text = $pdf->getText();
+
+            // Create new Word document
+            $phpWord = new \PhpOffice\PhpWord\PhpWord();
+            
+            // Add a section
+            $section = $phpWord->addSection();
+
+            // Split text into paragraphs
+            $paragraphs = explode("\n\n", $text);
+            
+            foreach ($paragraphs as $paragraph) {
+                $paragraph = trim($paragraph);
+                if (!empty($paragraph)) {
+                    // Replace multiple newlines with single space
+                    $paragraph = preg_replace('/\s+/', ' ', $paragraph);
+                    $section->addText($paragraph);
+                    $section->addTextBreak(1);
+                }
             }
 
             // Generate output filename
             $outputFileName = pathinfo($title, PATHINFO_FILENAME) . '_converted_' . time() . '.docx';
             $outputPath = $tempDir . $outputFileName;
 
-            // Create Python script for conversion
-            $pythonScript = <<<PYTHON
-import sys
-try:
-    from pdf2docx import Converter
-    
-    pdf_file = sys.argv[1]
-    docx_file = sys.argv[2]
-    
-    cv = Converter(pdf_file)
-    cv.convert(docx_file)
-    cv.close()
-    
-    print('SUCCESS')
-except ImportError:
-    print('ERROR: pdf2docx library not installed. Install with: pip install pdf2docx')
-    sys.exit(1)
-except Exception as e:
-    print(f'ERROR: {str(e)}')
-    sys.exit(1)
-PYTHON;
-
-            $scriptPath = $tempDir . 'convert_' . uniqid() . '.py';
-            file_put_contents($scriptPath, $pythonScript);
-
-            // Execute Python script
-            $command = "python " . escapeshellarg($scriptPath) . " " . escapeshellarg($sourcePath) . " " . escapeshellarg($outputPath) . " 2>&1";
-            $output = shell_exec($command);
-
-            // Clean up Python script
-            if (file_exists($scriptPath)) {
-                unlink($scriptPath);
-            }
-
-            if (strpos($output, 'SUCCESS') === false || !file_exists($outputPath)) {
-                return [
-                    'success' => false,
-                    'message' => 'PDF to DOCX conversion failed. Make sure pdf2docx is installed: pip install pdf2docx'
-                ];
-            }
+            // Save DOCX file
+            $objWriter = \PhpOffice\PhpWord\IOFactory::createWriter($phpWord, 'Word2007');
+            $objWriter->save($outputPath);
 
             $relativePath = 'uploads/temp/' . $outputFileName;
 
@@ -1076,6 +1065,11 @@ PYTHON;
 
             // Add Cloudinary URL
             $fileData['cloudinary_url'] = $uploadResult['secure_url'];
+
+            // Clean up temp file after successful upload
+            if (file_exists($tempPath)) {
+                unlink($tempPath);
+            }
 
             Response::success($fileData, 'Converted file saved successfully', 201);
         } catch (Exception $e) {
