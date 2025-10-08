@@ -1,27 +1,26 @@
 {
-  "framework": "vite",
-  "cleanUrls": true,
-  "trailingSlash": false,
-  "rewrites": [
+  "routes": [
     {
-      "source": "/api/:path*",
-      "destination": "https://collegeresourcehub.onrender.com/api/:path*"
+      "src": "/api/(.*)",
+      "dest": "https://collegeresourcehub.onrender.com/api/$1"
     },
     {
-      "source": "/(.*)",
-      "destination": "/index.html"
+      "src": "/assets/(.*)",
+      "dest": "/assets/$1",
+      "headers": {
+        "Cache-Control": "public, max-age=31536000, immutable"
+      }
+    },
+    {
+      "src": "/(.*\\..+)",
+      "dest": "/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
     }
   ],
   "headers": [
-    {
-      "source": "/assets/(.*)",
-      "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "public, max-age=31536000, immutable"
-        }
-      ]
-    },
     {
       "source": "/(.*)",
       "headers": [
