@@ -19,9 +19,12 @@ if ($isProduction) {
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
 
 // Define allowed origins - ADD ALL YOUR VERCEL URLS HERE
+// Define allowed origins - ADD ALL YOUR VERCEL URLS HERE
 $allowedOrigins = [
-    'https://college-resource-hub-azure.vercel.app',
-    'https://college-resource-11a3ui4qh-aritras-projects-bd1f0053.vercel.app',
+    'https://college-resource-hub-azure.vercel.app',                          // Production (Main)
+    'https://college-resource-hub-git-main-aritras-projects-bd1f0053.vercel.app', // Git branch
+    'https://college-resource-2qlcfabeh-aritras-projects-bd1f0053.vercel.app',    // Preview
+    'https://college-resource-11a3ui4qh-aritras-projects-bd1f0053.vercel.app',    // Old preview
     'http://localhost:5173',
     'http://localhost:3000',
     'http://127.0.0.1:5173',
