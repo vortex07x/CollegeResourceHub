@@ -945,15 +945,18 @@ class FileController
                 $contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
             }
 
+            // Clear any previous output
+            if (ob_get_level()) {
+                ob_end_clean();
+            }
+
             header('Content-Type: ' . $contentType);
             header('Content-Disposition: attachment; filename="' . $fileName . '"');
             header('Content-Length: ' . filesize($filePath));
             header('Cache-Control: no-cache, must-revalidate');
             header('Pragma: public');
 
-            ob_clean();
-            flush();
-
+            // Read and output file
             readfile($filePath);
             exit();
         } catch (Exception $e) {
@@ -1024,10 +1027,10 @@ class FileController
             $description = 'Converted from ' . strtoupper($originalFile['file_type']) . ' to ' . strtoupper($fileExtension);
 
             $stmt = $db->prepare("
-                INSERT INTO files (user_id, title, description, file_name, file_path, file_type, 
-                                 category, subject, semester, file_size, position_x, position_y) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ");
+            INSERT INTO files (user_id, title, description, file_name, file_path, file_type, 
+                             category, subject, semester, file_size, position_x, position_y) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ");
 
             $result = $stmt->execute([
                 $userId,
@@ -1055,21 +1058,22 @@ class FileController
 
             // Get newly created file data
             $stmt = $db->prepare("
-                SELECT f.*, u.name as uploaded_by, u.email as uploader_email
-                FROM files f
-                JOIN users u ON f.user_id = u.id
-                WHERE f.id = ?
-            ");
+            SELECT f.*, u.name as uploaded_by, u.email as uploader_email
+            FROM files f
+            JOIN users u ON f.user_id = u.id
+            WHERE f.id = ?
+        ");
             $stmt->execute([$fileId]);
             $fileData = $stmt->fetch(PDO::FETCH_ASSOC);
 
             // Add Cloudinary URL
             $fileData['cloudinary_url'] = $uploadResult['secure_url'];
 
-            // Clean up temp file after successful upload
-            if (file_exists($tempPath)) {
-                unlink($tempPath);
-            }
+            // 🔧 FIX: DON'T delete temp file here - let cleanup endpoint handle it
+            // The frontend needs the temp file for the download step
+            // if (file_exists($tempPath)) {
+            //     unlink($tempPath);
+            // }
 
             Response::success($fileData, 'Converted file saved successfully', 201);
         } catch (Exception $e) {

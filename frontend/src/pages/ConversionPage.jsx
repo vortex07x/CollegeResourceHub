@@ -94,21 +94,24 @@ const ConversionPage = () => {
         try {
             toast.loading('Saving and downloading...', { id: 'save-download' });
 
-            // Save to database first (if not already saved)
-            if (!completedActions.saved) {
-                await fileService.saveConvertedFile(fileData.id, convertedFile.temp_file_path);
-                setCompletedActions(prev => ({ ...prev, saved: true }));
-            }
-
-            // Download the file (if not already downloaded)
+            // 🔧 FIX: Download FIRST, then save
+            // This ensures the temp file exists when we try to download it
+            
+            // Step 1: Download the file (if not already downloaded)
             if (!completedActions.downloaded) {
                 await fileService.downloadConvertedFile(convertedFile.temp_file_path, convertedFile.converted_file_name);
                 setCompletedActions(prev => ({ ...prev, downloaded: true }));
             }
 
+            // Step 2: Save to database (if not already saved)
+            if (!completedActions.saved) {
+                await fileService.saveConvertedFile(fileData.id, convertedFile.temp_file_path);
+                setCompletedActions(prev => ({ ...prev, saved: true }));
+            }
+
             toast.success('File saved and downloaded!', { id: 'save-download' });
 
-            // Cleanup temp file
+            // Step 3: Cleanup temp file
             await fileService.cleanupTempFile(convertedFile.temp_file_path);
 
             // Redirect after short delay
