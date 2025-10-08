@@ -1,8 +1,10 @@
 import axios from 'axios';
 import { toast } from 'react-hot-toast';
 
-// Use environment variable or fallback to localhost
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+// Use environment variable or fallback to production URL
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://collegeresourcehub.onrender.com/api';
+
+console.log('🔗 API Base URL:', API_BASE_URL);
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -62,12 +64,21 @@ api.interceptors.response.use(
   (error) => {
     // Handle network errors
     if (!error.response) {
+      console.error('❌ Network Error:', error.message);
       toast.error('Network error. Please check your connection.', {
         duration: 4000,
         position: 'top-right',
       });
       return Promise.reject(error);
     }
+
+    // Log error details
+    console.error('❌ API Error:', {
+      status: error.response?.status,
+      url: error.config?.url,
+      method: error.config?.method,
+      data: error.response?.data
+    });
 
     // Only handle 401 if user was actually authenticated
     if (error.response?.status === 401) {
