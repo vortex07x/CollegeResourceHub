@@ -1,27 +1,36 @@
 import api from './api';
 
 export const fileService = {
-  // Get all files
+  // Get all files (with extended timeout for initial load)
   getAllFiles: async (filters = {}) => {
-    const response = await api.get('/files', { params: filters });
+    const response = await api.get('/files', { 
+      params: filters,
+      timeout: 90000 // 90 seconds for initial load
+    });
     return response.data;
   },
 
   // Get user's files
   getMyFiles: async () => {
-    const response = await api.get('/files/my-files');
+    const response = await api.get('/files/my-files', {
+      timeout: 90000 // 90 seconds for initial load
+    });
     return response.data;
   },
 
   // Get pinned files
   getPinnedFiles: async () => {
-    const response = await api.get('/files/pinned');
+    const response = await api.get('/files/pinned', {
+      timeout: 90000 // 90 seconds for initial load
+    });
     return response.data;
   },
 
-  // Get top downloaded files (public endpoint)
+  // Get top downloaded files (public endpoint - most likely to hit cold start)
   getTopDownloadedFiles: async () => {
-    const response = await api.get('/files/top-downloaded');
+    const response = await api.get('/files/top-downloaded', {
+      timeout: 90000 // 90 seconds for initial load
+    });
     return response.data;
   },
 
@@ -139,7 +148,7 @@ export const fileService = {
     return response.data;
   },
 
-  // NEW: Clean up temporary converted file
+  // Clean up temporary converted file
   cleanupTempFile: async (tempFilePath) => {
     const response = await api.post('/files/cleanup-temp', {
       temp_file_path: tempFilePath

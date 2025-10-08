@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, ZoomIn, ZoomOut, MapPin, Grid3x3, Upload, Move, Loader, X } from 'lucide-react';
+import { Search, ZoomIn, ZoomOut, MapPin, Grid3x3, Upload, Move, Loader, X, AlertCircle, RefreshCw } from 'lucide-react';
 import useFileStore from '../store/useFileStore';
 import useAuthStore from '../store/useAuthStore';
 import FileCard from '../components/canvas/FileCard';
@@ -29,13 +29,15 @@ const BrowseFiles = () => {
   const [uploadPosition, setUploadPosition] = useState({ x: 200, y: 200 });
   const [allFiles, setAllFiles] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isWakingUp, setIsWakingUp] = useState(false); // ✅ Cold start indicator
+  const [loadError, setLoadError] = useState(null); // ✅ Error state
   const [hasShownWelcomeToast, setHasShownWelcomeToast] = useState(false);
   const canvasRef = useRef(null);
   const isDraggingRef = useRef(false);
 
   // Show welcome toast for logged-out users (only once per session)
   useEffect(() => {
-    if (!isAuthenticated && !hasShownWelcomeToast && !isLoading) {
+    if (!isAuthenticated && !hasShownWelcomeToast && !isLoading && !loadError) {
       toast('Login to unlock uploading, downloading, and organizing files!', {
         duration: 5000,
         position: 'top-center',
@@ -51,7 +53,7 @@ const BrowseFiles = () => {
       });
       setHasShownWelcomeToast(true);
     }
-  }, [isAuthenticated, hasShownWelcomeToast, isLoading]);
+  }, [isAuthenticated, hasShownWelcomeToast, isLoading, loadError]);
 
   useEffect(() => {
     loadFiles();
@@ -69,6 +71,9 @@ const BrowseFiles = () => {
   const loadFiles = async () => {
     try {
       setIsLoading(true);
+      setLoadError(null);
+      setIsWakingUp(true); // ✅ Show waking up indicator
+      
       const response = await fileService.getAllFiles();
 
       const transformedFiles = response.data.map(file => ({
@@ -90,9 +95,22 @@ const BrowseFiles = () => {
       }));
 
       setAllFiles(transformedFiles);
+      setIsWakingUp(false);
     } catch (error) {
       console.error('Failed to load files:', error);
-      toast.error('Failed to load files');
+      setIsWakingUp(false);
+      
+      // ✅ Handle different error types
+      if (error.code === 'ECONNABORTED') {
+        setLoadError('timeout');
+        toast.error('Server is taking longer than expected. Please try refreshing.', {
+          duration: 6000,
+          position: 'top-center',
+        });
+      } else {
+        setLoadError('general');
+        toast.error('Failed to load files');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -454,11 +472,45 @@ const BrowseFiles = () => {
           userSelect: 'none',
         }}
       >
+        {/* ✅ Loading State with Cold Start Message */}
         {isLoading ? (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="text-center">
               <Loader size={48} className="text-purple-500 animate-spin mx-auto mb-4" />
-              <p className="text-white font-medium">Loading files...</p>
+              {isWakingUp ? (
+                <div className="space-y-2">
+                  <p className="text-white font-medium text-lg">Server is waking up...</p>
+                  <p className="text-gray-400 text-sm max-w-md">
+                    This may take up to 60 seconds on first load. Please be patient.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-white font-medium">Loading files...</p>
+              )}
+            </div>
+          </div>
+        ) : loadError ? (
+          // ✅ Error State with Retry
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="text-center max-w-md">
+              <div className="w-20 h-20 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                <AlertCircle size={40} className="text-red-500" />
+              </div>
+              <h3 className="text-2xl font-bold text-white mb-3">
+                {loadError === 'timeout' ? 'Server Starting Up' : 'Failed to Load Files'}
+              </h3>
+              <p className="text-gray-400 mb-6">
+                {loadError === 'timeout' 
+                  ? 'The server needs more time to wake up. This happens after periods of inactivity on the free hosting tier.' 
+                  : 'Unable to fetch files right now. Please check your connection and try again.'}
+              </p>
+              <button
+                onClick={loadFiles}
+                className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-blue-500 text-white rounded-lg font-semibold hover:opacity-90 transition-opacity"
+              >
+                <RefreshCw size={18} />
+                Retry Loading
+              </button>
             </div>
           </div>
         ) : (
@@ -548,7 +600,7 @@ const BrowseFiles = () => {
       </div>
 
       {/* Mini Map */}
-      {showMiniMap && !isLoading && filteredFiles.length > 0 && (
+      {showMiniMap && !isLoading && !loadError && filteredFiles.length > 0 && (
         <MiniMap
           files={filteredFiles}
           viewportPan={pan}

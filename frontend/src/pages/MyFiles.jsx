@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Upload, FileText, Eye, HardDrive, Grid3x3, List, Download, Edit2, Trash2, Pin } from 'lucide-react';
+import { Upload, FileText, Eye, HardDrive, Grid3x3, List, Download, Edit2, Trash2, Pin, AlertCircle, RefreshCw, Loader } from 'lucide-react';
 import { fileService } from '../services/fileService';
 import { toast } from 'react-hot-toast';
 import EditFileModal from '../components/canvas/EditFileModal';
@@ -11,6 +11,8 @@ const MyFiles = () => {
   const [myFiles, setMyFiles] = useState([]);
   const [pinnedFiles, setPinnedFiles] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isWakingUp, setIsWakingUp] = useState(false);
+  const [loadError, setLoadError] = useState(null);
   const [editingFile, setEditingFile] = useState(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [viewingFile, setViewingFile] = useState(null);
@@ -23,6 +25,8 @@ const MyFiles = () => {
   const loadFiles = async () => {
     try {
       setIsLoading(true);
+      setLoadError(null);
+      setIsWakingUp(true);
 
       const [myFilesResponse, pinnedResponse] = await Promise.all([
         fileService.getMyFiles(),
@@ -34,9 +38,21 @@ const MyFiles = () => {
 
       setMyFiles(transformedMyFiles);
       setPinnedFiles(transformedPinnedFiles);
+      setIsWakingUp(false);
     } catch (error) {
       console.error('Failed to load files:', error);
-      toast.error('Failed to load files');
+      setIsWakingUp(false);
+      
+      if (error.code === 'ECONNABORTED') {
+        setLoadError('timeout');
+        toast.error('Server is taking longer than expected. Please try refreshing.', {
+          duration: 6000,
+          position: 'top-center',
+        });
+      } else {
+        setLoadError('general');
+        toast.error('Failed to load files');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -99,14 +115,13 @@ const MyFiles = () => {
     }
   };
 
-  const handleUnpin = async (fileId) => {
+  const handleDownload = async (file) => {
     try {
-      await fileService.unpinFile(fileId);
-      toast.success('File unpinned');
-      setPinnedFiles(prev => prev.filter(f => f.id !== fileId));
+      await fileService.downloadFile(file.id, file.name);
+      toast.success('Download started');
     } catch (error) {
-      console.error('Unpin failed:', error);
-      toast.error('Failed to unpin file');
+      console.error('Download failed:', error);
+      toast.error('Failed to download file');
     }
   };
 
@@ -115,429 +130,391 @@ const MyFiles = () => {
     setShowEditModal(true);
   };
 
-  const handleUpdate = async (fileId, data) => {
+  const handleEditSave = async (updatedData) => {
     try {
-      const response = await fileService.updateFile(fileId, data);
+      await fileService.updateFile(editingFile.id, updatedData);
       toast.success('File updated successfully');
-
-      const updatedFile = transformFile(response.data);
-      setMyFiles(prev => prev.map(f => f.id === fileId ? updatedFile : f));
-      setPinnedFiles(prev => prev.map(f => f.id === fileId ? updatedFile : f));
-
       setShowEditModal(false);
-      setEditingFile(null);
+      loadFiles();
     } catch (error) {
       console.error('Update failed:', error);
-      throw new Error(error.response?.data?.message || 'Update failed');
+      toast.error('Failed to update file');
     }
   };
 
-  const handleView = async (file) => {
+  const handleViewInfo = (file) => {
+    setViewingFile(file);
+    setShowInfoModal(true);
+  };
+
+  const handlePin = async (fileId) => {
     try {
-      const response = await fileService.getFileInfo(file.id);
-      setViewingFile(response.data);
-      setShowInfoModal(true);
+      await fileService.pinFile(fileId);
+      toast.success('File pinned successfully');
+      loadFiles();
     } catch (error) {
-      console.error('Failed to load file info:', error);
-      toast.error('Failed to load file information');
+      console.error('Pin failed:', error);
+      toast.error('Failed to pin file');
     }
   };
 
-  const handleDownload = async (file) => {
+  const handleUnpin = async (fileId) => {
     try {
-      toast.loading('Preparing download...', { id: 'download' });
-      await fileService.downloadFile(file.id, file.name);
-      toast.success('Download started!', { id: 'download' });
+      await fileService.unpinFile(fileId);
+      toast.success('File unpinned successfully');
+      loadFiles();
     } catch (error) {
-      console.error('Download failed:', error);
-      toast.error('Failed to download file', { id: 'download' });
+      console.error('Unpin failed:', error);
+      toast.error('Failed to unpin file');
     }
   };
 
-  const currentFiles = activeTab === 'uploads' ? myFiles : pinnedFiles;
+  const displayFiles = activeTab === 'uploads' ? myFiles : pinnedFiles;
 
-  const stats = [
-    { icon: FileText, label: 'Total Files', value: myFiles.length, color: 'text-purple-500' },
-    { icon: Pin, label: 'Pinned Files', value: pinnedFiles.length, color: 'text-yellow-500' },
-    { icon: Eye, label: 'Total Downloads', value: myFiles.reduce((sum, f) => sum + f.views, 0), color: 'text-green-500' },
-    { icon: HardDrive, label: 'Storage Used', value: calculateTotalSize(), color: 'text-orange-500' },
-  ];
+  // Loading State
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-black pt-16 flex items-center justify-center">
+        <div className="text-center">
+          <Loader size={48} className="text-purple-500 animate-spin mx-auto mb-4" />
+          {isWakingUp ? (
+            <div className="space-y-2">
+              <p className="text-white font-medium text-lg">Server is waking up...</p>
+              <p className="text-gray-400 text-sm max-w-md">
+                This may take up to 60 seconds on first load. Please be patient.
+              </p>
+            </div>
+          ) : (
+            <p className="text-white font-medium">Loading your files...</p>
+          )}
+        </div>
+      </div>
+    );
+  }
 
-  function calculateTotalSize() {
-    const totalBytes = myFiles.reduce((sum, f) => {
-      const sizeStr = f.size;
-      const value = parseFloat(sizeStr);
-      if (sizeStr.includes('MB')) return sum + value * 1024 * 1024;
-      if (sizeStr.includes('KB')) return sum + value * 1024;
-      return sum + value;
-    }, 0);
-    return formatFileSize(totalBytes);
+  // Error State
+  if (loadError) {
+    return (
+      <div className="min-h-screen bg-black pt-16 flex items-center justify-center">
+        <div className="text-center max-w-md px-4">
+          <div className="w-20 h-20 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
+            <AlertCircle size={40} className="text-red-500" />
+          </div>
+          <h3 className="text-2xl font-bold text-white mb-3">
+            {loadError === 'timeout' ? 'Server Starting Up' : 'Failed to Load Files'}
+          </h3>
+          <p className="text-gray-400 mb-6">
+            {loadError === 'timeout' 
+              ? 'The server needs more time to wake up. This happens after periods of inactivity.' 
+              : 'Unable to fetch your files right now. Please check your connection and try again.'}
+          </p>
+          <button
+            onClick={loadFiles}
+            className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-blue-500 text-white rounded-lg font-semibold hover:opacity-90 transition-opacity"
+          >
+            <RefreshCw size={18} />
+            Retry Loading
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="myfiles-page min-h-screen bg-black pt-20 px-4 sm:px-6 lg:px-8 pb-16">
-      <div className="max-w-7xl mx-auto">
-        {/* Page Header */}
-        <div className="flex items-center justify-between mb-8 sm:mb-12">
-          <h1 className="myfiles-heading text-3xl sm:text-4xl font-bold text-white">My Files</h1>
+    <div className="min-h-screen bg-black pt-16">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Header */}
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-white mb-2">My Files</h1>
+          <p className="text-gray-400">Manage your uploaded files and pinned resources</p>
         </div>
 
         {/* Stats Cards */}
-        <div className="myfiles-stats-grid grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 lg:gap-6 mb-8 sm:mb-12">
-          {stats.map((stat, index) => (
-            <div
-              key={index}
-              className="myfiles-stat-card bg-[#0A0A0A] border border-white/10 rounded-lg sm:rounded-xl p-4 sm:p-6 hover:border-purple-500/30 transition-colors"
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          <div className="bg-gradient-to-br from-purple-500/10 to-purple-600/10 border border-purple-500/20 rounded-xl p-6">
+            <div className="flex items-center justify-between mb-2">
+              <Upload className="text-purple-400" size={24} />
+              <span className="text-3xl font-bold text-white">{myFiles.length}</span>
+            </div>
+            <p className="text-gray-400 text-sm">Total Uploads</p>
+          </div>
+
+          <div className="bg-gradient-to-br from-blue-500/10 to-blue-600/10 border border-blue-500/20 rounded-xl p-6">
+            <div className="flex items-center justify-between mb-2">
+              <Pin className="text-blue-400" size={24} />
+              <span className="text-3xl font-bold text-white">{pinnedFiles.length}</span>
+            </div>
+            <p className="text-gray-400 text-sm">Pinned Files</p>
+          </div>
+
+          <div className="bg-gradient-to-br from-green-500/10 to-green-600/10 border border-green-500/20 rounded-xl p-6">
+            <div className="flex items-center justify-between mb-2">
+              <HardDrive className="text-green-400" size={24} />
+              <span className="text-3xl font-bold text-white">
+                {myFiles.reduce((total, file) => {
+                  const sizeMatch = file.size.match(/[\d.]+/);
+                  const sizeValue = sizeMatch ? parseFloat(sizeMatch[0]) : 0;
+                  return total + (file.size.includes('MB') ? sizeValue : sizeValue / 1024);
+                }, 0).toFixed(2)} MB
+              </span>
+            </div>
+            <p className="text-gray-400 text-sm">Total Storage</p>
+          </div>
+        </div>
+
+        {/* Tabs and View Toggle */}
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-2 bg-[#0A0A0A] border border-white/10 rounded-lg p-1">
+            <button
+              onClick={() => setActiveTab('uploads')}
+              className={`px-6 py-2 rounded-md font-medium transition-all ${
+                activeTab === 'uploads'
+                  ? 'bg-purple-500 text-white'
+                  : 'text-gray-400 hover:text-white'
+              }`}
             >
-              <stat.icon size={window.innerWidth < 640 ? 24 : 32} className={`${stat.color} mb-2 sm:mb-3`} />
-              <div className="myfiles-stat-value text-2xl sm:text-4xl font-bold text-white mb-1">{stat.value}</div>
-              <div className="myfiles-stat-label text-xs sm:text-sm text-gray-400">{stat.label}</div>
+              My Uploads
+            </button>
+            <button
+              onClick={() => setActiveTab('pinned')}
+              className={`px-6 py-2 rounded-md font-medium transition-all ${
+                activeTab === 'pinned'
+                  ? 'bg-purple-500 text-white'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              Pinned
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2 bg-[#0A0A0A] border border-white/10 rounded-lg p-1">
+            <button
+              onClick={() => setViewMode('grid')}
+              className={`p-2 rounded transition-all ${
+                viewMode === 'grid'
+                  ? 'bg-purple-500 text-white'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              <Grid3x3 size={20} />
+            </button>
+            <button
+              onClick={() => setViewMode('list')}
+              className={`p-2 rounded transition-all ${
+                viewMode === 'list'
+                  ? 'bg-purple-500 text-white'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              <List size={20} />
+            </button>
+          </div>
+        </div>
+
+        {/* Files Display */}
+        {displayFiles.length === 0 ? (
+          <div className="text-center py-16">
+            <div className="w-24 h-24 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-4">
+              <FileText size={48} className="text-gray-600" />
             </div>
-          ))}
-        </div>
+            <h3 className="text-xl font-semibold text-white mb-2">
+              {activeTab === 'uploads' ? 'No uploaded files yet' : 'No pinned files yet'}
+            </h3>
+            <p className="text-gray-400">
+              {activeTab === 'uploads'
+                ? 'Upload your first file to get started'
+                : 'Pin files from the browse page to save them here'}
+            </p>
+          </div>
+        ) : viewMode === 'grid' ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {displayFiles.map((file) => (
+              <div
+                key={file.id}
+                className="bg-[#0A0A0A] border border-white/10 rounded-xl p-6 hover:border-purple-500/50 transition-all group"
+              >
+                <div className="flex items-start justify-between mb-4">
+                  <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-blue-500 rounded-lg flex items-center justify-center text-2xl">
+                    {getFileIcon(file.type)}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {activeTab === 'uploads' ? (
+                      <button
+                        onClick={() => handlePin(file.id)}
+                        className="p-2 text-gray-400 hover:text-purple-400 hover:bg-purple-500/10 rounded-lg transition-all"
+                        title="Pin file"
+                      >
+                        <Pin size={16} />
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleUnpin(file.id)}
+                        className="p-2 text-purple-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all"
+                        title="Unpin file"
+                      >
+                        <Pin size={16} className="fill-current" />
+                      </button>
+                    )}
+                  </div>
+                </div>
 
-        {/* Tabs */}
-        <div className="myfiles-tabs flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-4 mb-4 sm:mb-6">
-          <button
-            onClick={() => setActiveTab('uploads')}
-            className={`myfiles-tab px-4 sm:px-6 py-2.5 sm:py-3 rounded-lg font-semibold text-sm sm:text-base transition-all ${activeTab === 'uploads'
-              ? 'bg-gradient-to-r from-purple-500 to-blue-500 text-white'
-              : 'bg-white/5 border border-white/10 text-gray-400 hover:bg-white/10'
-              }`}
-          >
-            <Upload size={16} className="inline mr-2" />
-            Your Uploads ({myFiles.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('pinned')}
-            className={`myfiles-tab px-4 sm:px-6 py-2.5 sm:py-3 rounded-lg font-semibold text-sm sm:text-base transition-all ${activeTab === 'pinned'
-                ? 'bg-gradient-to-r from-purple-500 to-blue-500 text-white'
-                : 'bg-white/5 border border-white/10 text-gray-400 hover:bg-white/10'
-              }`}
-          >
-            <Pin size={16} className="inline mr-2" />
-            Pinned Files ({pinnedFiles.length})
-          </button>
-        </div>
+                <h3 className="text-lg font-semibold text-white mb-2 line-clamp-2">
+                  {file.title}
+                </h3>
 
-        {/* View Toggle */}
-        <div className="myfiles-view-toggle flex items-center gap-2 sm:gap-3 mb-4 sm:mb-6">
-          <button
-            onClick={() => setViewMode('grid')}
-            className={`w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center border rounded-lg transition-all ${viewMode === 'grid'
-                ? 'bg-purple-500 border-purple-500 text-white'
-                : 'bg-[#1A1A1A] border-white/10 text-gray-400 hover:bg-white/5'
-              }`}
-          >
-            <Grid3x3 size={16} />
-          </button>
-          <button
-            onClick={() => setViewMode('list')}
-            className={`w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center border rounded-lg transition-all ${viewMode === 'list'
-                ? 'bg-purple-500 border-purple-500 text-white'
-                : 'bg-[#1A1A1A] border-white/10 text-gray-400 hover:bg-white/5'
-              }`}
-          >
-            <List size={16} />
-          </button>
-        </div>
+                <div className="space-y-2 mb-4">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-500">Type</span>
+                    <span className="text-gray-300">{file.type}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-500">Size</span>
+                    <span className="text-gray-300">{file.size}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-500">Downloads</span>
+                    <span className="text-gray-300">{file.views}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-500">Uploaded</span>
+                    <span className="text-gray-300">{file.uploadDate}</span>
+                  </div>
+                </div>
 
-        {/* Loading State */}
-        {isLoading ? (
-          <div className="flex items-center justify-center py-20">
-            <div className="text-center">
-              <div className="w-12 h-12 sm:w-16 sm:h-16 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-              <p className="text-gray-400 text-sm sm:text-base">Loading files...</p>
-            </div>
+                <div className="flex items-center gap-2 pt-4 border-t border-white/5">
+                  <button
+                    onClick={() => handleViewInfo(file)}
+                    className="flex-1 px-3 py-2 bg-white/5 text-white rounded-lg hover:bg-white/10 transition-all text-sm font-medium flex items-center justify-center gap-2"
+                  >
+                    <Eye size={16} />
+                    View
+                  </button>
+                  <button
+                    onClick={() => handleDownload(file)}
+                    className="flex-1 px-3 py-2 bg-purple-500/20 text-purple-400 rounded-lg hover:bg-purple-500/30 transition-all text-sm font-medium flex items-center justify-center gap-2"
+                  >
+                    <Download size={16} />
+                    Download
+                  </button>
+                </div>
+
+                {activeTab === 'uploads' && (
+                  <div className="flex items-center gap-2 mt-2">
+                    <button
+                      onClick={() => handleEdit(file)}
+                      className="flex-1 px-3 py-2 bg-blue-500/20 text-blue-400 rounded-lg hover:bg-blue-500/30 transition-all text-sm font-medium flex items-center justify-center gap-2"
+                    >
+                      <Edit2 size={16} />
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => handleDelete(file.id, 'uploads')}
+                      className="flex-1 px-3 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-all text-sm font-medium flex items-center justify-center gap-2"
+                    >
+                      <Trash2 size={16} />
+                      Delete
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         ) : (
-          <>
-            {/* Grid View */}
-            {viewMode === 'grid' && (
-              <div className="myfiles-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
-                {currentFiles.map((file) => (
-                  <div
-                    key={file.id}
-                    className="myfiles-file-card bg-[#0A0A0A] border border-white/10 rounded-xl p-4 sm:p-5 hover:border-purple-500 hover:-translate-y-1 transition-all duration-300 group"
-                  >
-                    {/* File Icon */}
-                    <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gradient-to-br from-purple-500 to-blue-500 rounded-xl flex items-center justify-center mb-3 sm:mb-4">
-                      <span className="text-2xl sm:text-3xl">{getFileIcon(file.type)}</span>
-                    </div>
-
-                    {/* File Name */}
-                    <h3 className="text-white font-semibold text-sm sm:text-base mb-2 line-clamp-2 min-h-[2.5rem] sm:min-h-[3rem]">
-                      {file.title}
-                    </h3>
-
-                    {/* File Meta */}
-                    <div className="space-y-1 mb-3 sm:mb-4 text-xs text-gray-500">
-                      <div className="flex items-center gap-2">
-                        <span>📄</span>
-                        <span>{file.type}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span>💾</span>
-                        <span>{file.size}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span>📅</span>
-                        <span>{file.uploadDate}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span>👁️</span>
-                        <span>{file.views} downloads</span>
-                      </div>
-                    </div>
-
-                    {/* Action Buttons */}
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleDownload(file)}
-                        className="flex-1 py-2 bg-gradient-to-r from-purple-500 to-blue-500 text-white text-xs font-semibold rounded-lg hover:opacity-90 transition-opacity flex items-center justify-center gap-1"
-                      >
-                        <Download size={12} />
-                        <span className="hidden sm:inline">Download</span>
-                      </button>
-                      <button
-                        onClick={() => handleView(file)}
-                        className="w-8 h-8 sm:w-9 sm:h-9 bg-white/5 border border-white/10 text-white rounded-lg hover:bg-white/10 transition-colors flex items-center justify-center"
-                        title="View Info"
-                      >
-                        <Eye size={14} />
-                      </button>
-                      {activeTab === 'uploads' ? (
-                        <>
-                          <button
-                            onClick={() => handleEdit(file)}
-                            className="w-8 h-8 sm:w-9 sm:h-9 bg-white/5 border border-white/10 text-white rounded-lg hover:bg-white/10 transition-colors flex items-center justify-center"
-                            title="Edit"
-                          >
-                            <Edit2 size={14} />
-                          </button>
-                          <button
-                            onClick={() => handleDelete(file.id, 'uploads')}
-                            className="w-8 h-8 sm:w-9 sm:h-9 bg-white/5 border border-white/10 text-red-400 rounded-lg hover:bg-red-500/10 hover:border-red-500/30 transition-colors flex items-center justify-center"
-                            title="Delete"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </>
-                      ) : (
-                        <button
-                          onClick={() => handleUnpin(file.id)}
-                          className="w-8 h-8 sm:w-9 sm:h-9 bg-white/5 border border-white/10 text-yellow-400 rounded-lg hover:bg-yellow-500/10 hover:border-yellow-500/30 transition-colors flex items-center justify-center"
-                          title="Unpin"
-                        >
-                          <Pin size={14} />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* List View */}
-            {viewMode === 'list' && (
-              <div className="myfiles-list bg-[#0A0A0A] border border-white/10 rounded-xl overflow-hidden">
-                {/* Table Header - Hidden on Mobile */}
-                <div className="hidden lg:grid myfiles-list-header bg-[#1A1A1A] px-6 py-4 grid-cols-[2fr_1fr_1fr_1fr_1fr_140px] gap-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  <div>File Name</div>
-                  <div>Type</div>
-                  <div>Size</div>
-                  <div>Upload Date</div>
-                  <div>Downloads</div>
-                  <div className="text-center">Actions</div>
-                </div>
-
-                {/* Table Rows */}
-                {currentFiles.map((file, index) => (
-                  <div
-                    key={file.id}
-                    className={`myfiles-list-row px-4 sm:px-6 py-4 hover:bg-white/[0.02] transition-colors ${
-                      index !== currentFiles.length - 1 ? 'border-b border-white/5' : ''
-                    }`}
-                  >
-                    {/* Mobile Layout */}
-                    <div className="lg:hidden space-y-3">
-                      <div className="flex items-start gap-3">
-                        <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-blue-500 rounded-lg flex items-center justify-center flex-shrink-0">
-                          <span className="text-lg">{getFileIcon(file.type)}</span>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <span className="text-white font-medium text-sm block truncate">{file.title}</span>
-                          <div className="flex items-center gap-3 text-xs text-gray-400 mt-1">
-                            <span>{file.type}</span>
-                            <span>•</span>
-                            <span>{file.size}</span>
-                            <span>•</span>
-                            <span>{file.views} downloads</span>
-                          </div>
-                          <div className="text-xs text-gray-500 mt-1">{file.uploadDate}</div>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => handleDownload(file)}
-                          className="flex-1 h-9 bg-white/5 border border-white/10 text-white rounded-lg hover:bg-white/10 transition-colors flex items-center justify-center gap-1 text-xs"
-                          title="Download"
-                        >
-                          <Download size={14} />
-                          Download
-                        </button>
-                        <button
-                          onClick={() => handleView(file)}
-                          className="w-9 h-9 bg-white/5 border border-white/10 text-white rounded-lg hover:bg-white/10 transition-colors flex items-center justify-center"
-                          title="View Info"
-                        >
-                          <Eye size={14} />
-                        </button>
-                        {activeTab === 'uploads' ? (
-                          <>
-                            <button
-                              onClick={() => handleEdit(file)}
-                              className="w-9 h-9 bg-white/5 border border-white/10 text-white rounded-lg hover:bg-white/10 transition-colors flex items-center justify-center"
-                              title="Edit"
-                            >
-                              <Edit2 size={14} />
-                            </button>
-                            <button
-                              onClick={() => handleDelete(file.id, 'uploads')}
-                              className="w-9 h-9 bg-white/5 border border-white/10 text-red-400 rounded-lg hover:bg-red-500/10 hover:border-red-500/30 transition-colors flex items-center justify-center"
-                              title="Delete"
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </>
-                        ) : (
-                          <button
-                            onClick={() => handleUnpin(file.id)}
-                            className="w-9 h-9 bg-white/5 border border-white/10 text-yellow-400 rounded-lg hover:bg-yellow-500/10 hover:border-yellow-500/30 transition-colors flex items-center justify-center"
-                            title="Unpin"
-                          >
-                            <Pin size={14} />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Desktop Layout */}
-                    <div className="hidden lg:grid grid-cols-[2fr_1fr_1fr_1fr_1fr_140px] gap-4 items-center">
-                      {/* File Name with Icon */}
+          <div className="bg-[#0A0A0A] border border-white/10 rounded-xl overflow-hidden">
+            <table className="w-full">
+              <thead className="bg-white/5">
+                <tr>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase">File</th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase">Type</th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase">Size</th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase">Downloads</th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase">Uploaded</th>
+                  <th className="px-6 py-4 text-right text-xs font-semibold text-gray-400 uppercase">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {displayFiles.map((file) => (
+                  <tr key={file.id} className="hover:bg-white/5 transition-colors">
+                    <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-blue-500 rounded-lg flex items-center justify-center flex-shrink-0">
-                          <span className="text-lg">{getFileIcon(file.type)}</span>
+                        <div className="text-2xl">{getFileIcon(file.type)}</div>
+                        <div>
+                          <p className="text-white font-medium">{file.title}</p>
+                          <p className="text-gray-400 text-sm">{file.name}</p>
                         </div>
-                        <span className="text-white font-medium text-sm truncate">{file.title}</span>
                       </div>
-
-                      {/* Type */}
-                      <div className="text-gray-400 text-sm">{file.type}</div>
-
-                      {/* Size */}
-                      <div className="text-gray-400 text-sm">{file.size}</div>
-
-                      {/* Date */}
-                      <div className="text-gray-400 text-sm">{file.uploadDate}</div>
-
-                      {/* Downloads */}
-                      <div className="text-gray-400 text-sm">{file.views}</div>
-
-                      {/* Actions */}
-                      <div className="flex items-center justify-center gap-2">
+                    </td>
+                    <td className="px-6 py-4 text-gray-300">{file.type}</td>
+                    <td className="px-6 py-4 text-gray-300">{file.size}</td>
+                    <td className="px-6 py-4 text-gray-300">{file.views}</td>
+                    <td className="px-6 py-4 text-gray-300">{file.uploadDate}</td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center justify-end gap-2">
                         <button
-                          onClick={() => handleDownload(file)}
-                          className="w-8 h-8 bg-white/5 border border-white/10 text-white rounded-lg hover:bg-white/10 transition-colors flex items-center justify-center"
-                          title="Download"
+                          onClick={() => handleViewInfo(file)}
+                          className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg transition-all"
+                          title="View info"
                         >
-                          <Download size={14} />
+                          <Eye size={18} />
                         </button>
                         <button
-                          onClick={() => handleView(file)}
-                          className="w-8 h-8 bg-white/5 border border-white/10 text-white rounded-lg hover:bg-white/10 transition-colors flex items-center justify-center"
-                          title="View Info"
+                          onClick={() => handleDownload(file)}
+                          className="p-2 text-gray-400 hover:text-purple-400 hover:bg-purple-500/10 rounded-lg transition-all"
+                          title="Download"
                         >
-                          <Eye size={14} />
+                          <Download size={18} />
                         </button>
                         {activeTab === 'uploads' ? (
                           <>
                             <button
                               onClick={() => handleEdit(file)}
-                              className="w-8 h-8 bg-white/5 border border-white/10 text-white rounded-lg hover:bg-white/10 transition-colors flex items-center justify-center"
+                              className="p-2 text-gray-400 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-all"
                               title="Edit"
                             >
-                              <Edit2 size={14} />
+                              <Edit2 size={18} />
                             </button>
                             <button
                               onClick={() => handleDelete(file.id, 'uploads')}
-                              className="w-8 h-8 bg-white/5 border border-white/10 text-red-400 rounded-lg hover:bg-red-500/10 hover:border-red-500/30 transition-colors flex items-center justify-center"
+                              className="p-2 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all"
                               title="Delete"
                             >
-                              <Trash2 size={14} />
+                              <Trash2 size={18} />
                             </button>
                           </>
                         ) : (
                           <button
                             onClick={() => handleUnpin(file.id)}
-                            className="w-8 h-8 bg-white/5 border border-white/10 text-yellow-400 rounded-lg hover:bg-yellow-500/10 hover:border-yellow-500/30 transition-colors flex items-center justify-center"
+                            className="p-2 text-purple-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all"
                             title="Unpin"
                           >
-                            <Pin size={14} />
+                            <Pin size={18} className="fill-current" />
                           </button>
                         )}
                       </div>
-                    </div>
-                  </div>
+                    </td>
+                  </tr>
                 ))}
-              </div>
-            )}
-
-            {/* Empty State */}
-            {currentFiles.length === 0 && (
-              <div className="bg-[#0A0A0A] border border-white/10 rounded-xl p-8 sm:p-16 text-center">
-                <div className="w-16 h-16 sm:w-24 sm:h-24 bg-gradient-to-br from-purple-500/20 to-blue-500/20 rounded-full flex items-center justify-center mx-auto mb-4 sm:mb-6">
-                  {activeTab === 'uploads' ? (
-                    <FileText size={window.innerWidth < 640 ? 32 : 48} className="text-purple-500" />
-                  ) : (
-                    <Pin size={window.innerWidth < 640 ? 32 : 48} className="text-yellow-500" />
-                  )}
-                </div>
-                <h3 className="text-xl sm:text-2xl font-bold text-white mb-2 sm:mb-3">
-                  {activeTab === 'uploads' ? 'No files uploaded yet' : 'No pinned files'}
-                </h3>
-                <p className="text-sm sm:text-base text-gray-400 mb-4 sm:mb-6">
-                  {activeTab === 'uploads'
-                    ? 'Start uploading your academic resources to share with others'
-                    : 'Pin files from Browse page for quick access'}
-                </p>
-              </div>
-            )}
-          </>
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
-      {/* Edit Modal */}
-      <EditFileModal
-        isOpen={showEditModal}
-        onClose={() => {
-          setShowEditModal(false);
-          setEditingFile(null);
-        }}
-        onUpdate={handleUpdate}
-        fileData={editingFile}
-      />
+      {/* Modals */}
+      {showEditModal && (
+        <EditFileModal
+          file={editingFile}
+          onClose={() => setShowEditModal(false)}
+          onSave={handleEditSave}
+        />
+      )}
 
-      {/* Info Modal */}
-      <FileInfoModal
-        isOpen={showInfoModal}
-        onClose={() => {
-          setShowInfoModal(false);
-          setViewingFile(null);
-        }}
-        fileInfo={viewingFile}
-        isAuthenticated={true}  // Add this line - user is always authenticated on My Files page
-      />
+      {showInfoModal && (
+        <FileInfoModal
+          file={viewingFile}
+          onClose={() => setShowInfoModal(false)}
+        />
+      )}
     </div>
   );
 };

@@ -12,7 +12,7 @@ const api = axios.create({
     'Content-Type': 'application/json',
   },
   withCredentials: false,
-  timeout: 30000, // 30 seconds timeout
+  timeout: 60000, // ✅ Increased to 60 seconds for cold starts
 });
 
 // Request interceptor for adding auth token
@@ -58,17 +58,55 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Response interceptor for handling errors and token expiration
+// Response interceptor for handling errors, token expiration, and retries
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
+    const config = error.config;
+
+    // ✅ Handle timeout errors with retry logic (for cold starts)
+    if (error.code === 'ECONNABORTED' && error.message.includes('timeout')) {
+      config._retryCount = config._retryCount || 0;
+
+      // Retry up to 2 times for timeouts
+      if (config._retryCount < 2) {
+        config._retryCount += 1;
+        
+        console.log(`⏳ Server is starting up... Retry attempt ${config._retryCount}/2`);
+        
+        // Show user-friendly message on first retry
+        if (config._retryCount === 1) {
+          toast.loading('Server is waking up, please wait...', { 
+            id: 'cold-start',
+            duration: 10000 
+          });
+        }
+        
+        // Wait before retry (5 seconds)
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        
+        // Retry the request
+        return api(config);
+      } else {
+        // Max retries reached
+        toast.error('Server is taking longer than expected. Please try again.', { 
+          id: 'cold-start' 
+        });
+      }
+    }
+
     // Handle network errors
     if (!error.response) {
       console.error('❌ Network Error:', error.message);
-      toast.error('Network error. Please check your connection.', {
-        duration: 4000,
-        position: 'top-right',
-      });
+      
+      // Don't show duplicate error if we already showed cold-start message
+      if (error.code !== 'ECONNABORTED') {
+        toast.error('Network error. Please check your connection.', {
+          duration: 4000,
+          position: 'top-right',
+        });
+      }
+      
       return Promise.reject(error);
     }
 

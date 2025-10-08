@@ -1,14 +1,17 @@
 import { useEffect, useState, useRef } from 'react';
 import { motion, useInView } from 'framer-motion';
-import { TrendingUp, Download, FileText, File, ArrowRight } from 'lucide-react';
+import { TrendingUp, Download, FileText, File, ArrowRight, AlertCircle, RefreshCw } from 'lucide-react';
 import { fileService } from '../../services/fileService';
 import { Link } from 'react-router-dom';
+import { toast } from 'react-hot-toast';
 
 const TopDownloadedSection = () => {
   const ref = useRef(null);
   const isInView = useInView(ref, { once: true, margin: '-100px' });
   const [topFiles, setTopFiles] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isWakingUp, setIsWakingUp] = useState(false); // ✅ Cold start indicator
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     loadTopFiles();
@@ -17,11 +20,27 @@ const TopDownloadedSection = () => {
   const loadTopFiles = async () => {
     try {
       setIsLoading(true);
+      setError(null);
+      setIsWakingUp(true); // ✅ Show waking up message
+      
       const response = await fileService.getTopDownloadedFiles();
       setTopFiles(response.data || []);
+      setIsWakingUp(false);
     } catch (error) {
       console.error('Failed to load top files:', error);
-      setTopFiles([]);
+      setIsWakingUp(false);
+      
+      // ✅ Handle timeout errors specifically
+      if (error.code === 'ECONNABORTED') {
+        setError('timeout');
+        toast.error('Server is taking longer than expected. Click retry to try again.', {
+          duration: 6000,
+          position: 'top-center',
+        });
+      } else {
+        setError('general');
+        setTopFiles([]);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -55,13 +74,52 @@ const TopDownloadedSection = () => {
     return colors[category] || colors.other;
   };
 
+  // ✅ Loading state with cold start message
   if (isLoading) {
     return (
       <section ref={ref} className="section-padding py-20 px-4 sm:px-8 bg-gradient-to-b from-[#0A0A0A] to-black">
         <div className="max-w-6xl mx-auto">
           <div className="text-center">
             <div className="w-16 h-16 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
-            <p className="text-gray-400 mt-4">Loading top files...</p>
+            {isWakingUp && (
+              <div className="mt-6 space-y-2">
+                <p className="text-white font-medium">Starting up the server...</p>
+                <p className="text-gray-400 text-sm">This may take up to 60 seconds on first load</p>
+              </div>
+            )}
+            {!isWakingUp && (
+              <p className="text-gray-400 mt-4">Loading top files...</p>
+            )}
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  // ✅ Error state with retry option
+  if (error) {
+    return (
+      <section ref={ref} className="section-padding py-20 px-4 sm:px-8 bg-gradient-to-b from-[#0A0A0A] to-black">
+        <div className="max-w-6xl mx-auto">
+          <div className="text-center">
+            <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
+              <AlertCircle size={32} className="text-red-500" />
+            </div>
+            <h3 className="text-xl font-bold text-white mb-2">
+              {error === 'timeout' ? 'Server is starting up' : 'Failed to load files'}
+            </h3>
+            <p className="text-gray-400 mb-6 max-w-md mx-auto">
+              {error === 'timeout' 
+                ? 'The server needs more time to wake up. Please try again.' 
+                : 'Unable to fetch top downloaded files right now.'}
+            </p>
+            <button
+              onClick={loadTopFiles}
+              className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-blue-500 text-white rounded-lg font-semibold hover:opacity-90 transition-opacity"
+            >
+              <RefreshCw size={18} />
+              Retry
+            </button>
           </div>
         </div>
       </section>
