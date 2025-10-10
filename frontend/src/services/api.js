@@ -15,9 +15,43 @@ const api = axios.create({
   timeout: 60000, // ✅ Increased to 60 seconds for cold starts
 });
 
+// ✅ NEW: Global state for cold start detection
+let isServerWarming = false;
+let warmupListeners = [];
+
+// ✅ NEW: Function to notify warmup state changes
+const notifyWarmupStateChange = (state) => {
+  warmupListeners.forEach(listener => listener(state));
+};
+
+// ✅ NEW: Subscribe to warmup state changes
+export const subscribeToWarmupState = (callback) => {
+  warmupListeners.push(callback);
+  return () => {
+    warmupListeners = warmupListeners.filter(listener => listener !== callback);
+  };
+};
+
+// ✅ NEW: Health check function (optional)
+export const checkServerHealth = async () => {
+  try {
+    const response = await axios.get(`${API_BASE_URL.replace('/api', '')}/health`, {
+      timeout: 5000,
+    });
+    return response.status === 200;
+  } catch (error) {
+    return false;
+  }
+};
+
 // Request interceptor for adding auth token
 api.interceptors.request.use(
   (config) => {
+    // ✅ NEW: Block requests if server is warming up (except health checks)
+    if (isServerWarming && !config.url?.includes('health')) {
+      return Promise.reject(new Error('Server is warming up'));
+    }
+
     const token = localStorage.getItem('token');
     const tokenExpiry = localStorage.getItem('tokenExpiry');
     
@@ -64,43 +98,95 @@ api.interceptors.response.use(
   async (error) => {
     const config = error.config;
 
-    // ✅ Handle timeout errors with retry logic (for cold starts)
+    // ✅ ENHANCED: Handle timeout errors with cold start detection
     if (error.code === 'ECONNABORTED' && error.message.includes('timeout')) {
       config._retryCount = config._retryCount || 0;
 
-      // Retry up to 2 times for timeouts
-      if (config._retryCount < 2) {
+      // First timeout = likely cold start
+      if (config._retryCount === 0) {
+        isServerWarming = true;
+        notifyWarmupStateChange({ status: 'warming', retryCount: 0 });
+      }
+
+      // Retry up to 3 times for timeouts (increased from 2)
+      if (config._retryCount < 3) {
         config._retryCount += 1;
         
-        console.log(`⏳ Server is starting up... Retry attempt ${config._retryCount}/2`);
+        console.log(`⏳ Server warming up... Retry attempt ${config._retryCount}/3`);
         
-        // Show user-friendly message on first retry
-        if (config._retryCount === 1) {
-          toast.loading('Server is waking up, please wait...', { 
-            id: 'cold-start',
-            duration: 10000 
-          });
-        }
+        // Notify listeners of retry
+        notifyWarmupStateChange({ status: 'warming', retryCount: config._retryCount });
         
-        // Wait before retry (5 seconds)
-        await new Promise(resolve => setTimeout(resolve, 5000));
+        // Wait before retry (10 seconds for first retry, 15 for second, 20 for third)
+        const waitTime = 10000 + (config._retryCount * 5000);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
         
         // Retry the request
-        return api(config);
+        try {
+          const response = await api(config);
+          // Success! Server is ready
+          isServerWarming = false;
+          notifyWarmupStateChange({ status: 'ready', retryCount: config._retryCount });
+          
+          // Dismiss any loading toasts
+          toast.dismiss('cold-start');
+          
+          return response;
+        } catch (retryError) {
+          // Continue to next retry or fail
+          if (config._retryCount >= 3) {
+            isServerWarming = false;
+            notifyWarmupStateChange({ status: 'error', retryCount: config._retryCount });
+            toast.dismiss('cold-start');
+          }
+          return Promise.reject(retryError);
+        }
       } else {
         // Max retries reached
-        toast.error('Server is taking longer than expected. Please try again.', { 
-          id: 'cold-start' 
+        isServerWarming = false;
+        notifyWarmupStateChange({ status: 'error', retryCount: config._retryCount });
+        toast.dismiss('cold-start');
+        toast.error('Server is taking longer than expected. Please refresh the page.', { 
+          duration: 6000 
         });
       }
     }
 
-    // Handle network errors
+    // ✅ ENHANCED: Handle network errors with cold start detection
     if (!error.response) {
       console.error('❌ Network Error:', error.message);
       
-      // Don't show duplicate error if we already showed cold-start message
-      if (error.code !== 'ECONNABORTED') {
+      // Check if it's a cold start scenario (not already warming and not a "warming up" rejection)
+      if (!isServerWarming && error.message !== 'Server is warming up' && error.code !== 'ECONNABORTED') {
+        // Could be a cold start - trigger warmup detection
+        isServerWarming = true;
+        notifyWarmupStateChange({ status: 'warming', retryCount: 0 });
+        
+        console.log('🔄 Detected potential cold start, retrying in 15 seconds...');
+        
+        // Retry once after 15 seconds
+        await new Promise(resolve => setTimeout(resolve, 15000));
+        
+        try {
+          const response = await api(error.config);
+          isServerWarming = false;
+          notifyWarmupStateChange({ status: 'ready', retryCount: 1 });
+          return response;
+        } catch (retryError) {
+          isServerWarming = false;
+          notifyWarmupStateChange({ status: 'error', retryCount: 1 });
+          
+          toast.error('Network error. Please check your connection.', {
+            duration: 4000,
+            position: 'top-right',
+          });
+          
+          return Promise.reject(retryError);
+        }
+      }
+      
+      // If already warming or blocked, just reject
+      if (error.message !== 'Server is warming up') {
         toast.error('Network error. Please check your connection.', {
           duration: 4000,
           position: 'top-right',

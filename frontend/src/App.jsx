@@ -1,7 +1,10 @@
 import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
+import { useState, useEffect } from 'react';
 import Layout from './components/common/Layout';
 import SessionTimer from './components/common/SessionTimer';
+import ServerWarmupModal from './components/common/ServerWarmupModal';
+import { subscribeToWarmupState } from './services/api';
 import Home from './pages/Home';
 import BrowseFiles from './pages/BrowseFiles';
 import MyFiles from './pages/MyFiles';
@@ -32,8 +35,48 @@ const ConditionalSessionTimer = () => {
 };
 
 function App() {
+  const [warmupState, setWarmupState] = useState({
+    isOpen: false,
+    status: 'warming', // 'warming' | 'ready' | 'error'
+    retryCount: 0,
+  });
+
+  useEffect(() => {
+    // Subscribe to warmup state changes from api.js
+    const unsubscribe = subscribeToWarmupState((state) => {
+      console.log('🔔 Warmup state change:', state);
+      
+      setWarmupState({
+        isOpen: true,
+        status: state.status,
+        retryCount: state.retryCount,
+      });
+
+      // Auto-close modal after 2 seconds when ready
+      if (state.status === 'ready') {
+        setTimeout(() => {
+          setWarmupState(prev => ({ ...prev, isOpen: false }));
+        }, 2000);
+      }
+    });
+
+    return unsubscribe;
+  }, []);
+
+  const handleCloseWarmupModal = () => {
+    setWarmupState(prev => ({ ...prev, isOpen: false }));
+  };
+
   return (
     <Router>
+      {/* Server Warmup Modal */}
+      <ServerWarmupModal
+        isOpen={warmupState.isOpen}
+        onClose={handleCloseWarmupModal}
+        status={warmupState.status}
+        retryCount={warmupState.retryCount}
+      />
+
       {/* Toast Notification Container */}
       <Toaster
         position="top-right"
