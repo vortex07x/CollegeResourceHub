@@ -136,6 +136,8 @@ class AdminController
                     email, 
                     college, 
                     role,
+                    avatar_style,
+                    avatar_seed,
                     created_at
                 FROM users
                 ORDER BY created_at DESC
@@ -270,6 +272,74 @@ class AdminController
         }
     }
 
+    // Add this new method after updateUser() method
+    // Update user role (admin privilege)
+    public static function updateUserRole($userId)
+    {
+        try {
+            if (!isset($_SERVER['user_id']) || !isset($_SERVER['is_admin'])) {
+                Response::error('Unauthorized access', 403);
+                return;
+            }
+
+            // Prevent admin from changing their own role
+            if ($_SERVER['user_id'] == $userId) {
+                Response::error('Cannot change your own role', 400);
+                return;
+            }
+
+            $data = json_decode(file_get_contents('php://input'), true);
+
+            if (!$data || !isset($data['role'])) {
+                Response::error('Role is required', 400);
+                return;
+            }
+
+            $newRole = $data['role'];
+
+            // Validate role
+            if (!in_array($newRole, ['user', 'admin'])) {
+                Response::error('Invalid role. Must be "user" or "admin"', 400);
+                return;
+            }
+
+            $database = new Database();
+            $db = $database->connect();
+
+            if (!$db) {
+                Response::error('Database connection failed', 500);
+                return;
+            }
+
+            // Check if user exists
+            $stmt = $db->prepare("SELECT id, role FROM users WHERE id = ?");
+            $stmt->execute([$userId]);
+            $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$user) {
+                Response::error('User not found', 404);
+                return;
+            }
+
+            // Update user role
+            $stmt = $db->prepare("UPDATE users SET role = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?");
+            $stmt->execute([$newRole, $userId]);
+
+            // Get updated user data
+            $stmt = $db->prepare("
+            SELECT id, name, email, college, role, avatar_style, avatar_seed, created_at 
+            FROM users WHERE id = ?
+        ");
+            $stmt->execute([$userId]);
+            $updatedUser = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            Response::success($updatedUser, "User role updated to {$newRole} successfully");
+        } catch (Exception $e) {
+            error_log('Admin UpdateUserRole Error: ' . $e->getMessage());
+            Response::error('Failed to update user role: ' . $e->getMessage(), 500);
+        }
+    }
+
     // Delete user
     public static function deleteUser($userId)
     {
@@ -369,7 +439,7 @@ class AdminController
             $stmt->execute();
 
             $files = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            
+
             // Add Cloudinary URLs
             $cloudinary = CloudinaryConfig::getInstance();
             foreach ($files as &$file) {
@@ -474,7 +544,7 @@ class AdminController
             ");
             $stmt->execute([$fileId]);
             $fileData = $stmt->fetch(PDO::FETCH_ASSOC);
-            
+
             // Add Cloudinary URL
             $cloudinary = CloudinaryConfig::getInstance();
             $fileData['cloudinary_url'] = $cloudinary->getFileUrl($fileData['file_path']);

@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     ArrowLeft, Search, Edit2, Trash2, Loader, X,
-    Mail, Building2, FileText, Eye, ChevronLeft, ChevronRight
+    Mail, Building2, FileText, Eye, ChevronLeft, ChevronRight, Shield, ShieldOff
 } from 'lucide-react';
 import useAuthStore from '../store/useAuthStore';
 import adminService from '../services/adminService';
@@ -23,7 +23,9 @@ const AdminUsers = () => {
     const [editingUser, setEditingUser] = useState(null);
     const [showEditModal, setShowEditModal] = useState(false);
     const [showDeleteModal, setShowDeleteModal] = useState(false);
+    const [showRoleModal, setShowRoleModal] = useState(false);
     const [deletingUser, setDeletingUser] = useState(null);
+    const [roleChangeUser, setRoleChangeUser] = useState(null);
     const [isSaving, setIsSaving] = useState(false);
     const [editFormData, setEditFormData] = useState({
         name: '',
@@ -57,6 +59,12 @@ const AdminUsers = () => {
         }
     };
 
+    const getAvatarUrl = (userObj) => {
+        const style = userObj.avatar_style || 'avataaars';
+        const seed = userObj.avatar_seed || userObj.email || userObj.name;
+        return `https://api.dicebear.com/7.x/${style}/svg?seed=${encodeURIComponent(seed)}`;
+    };
+
     const handleEditClick = (user) => {
         setEditingUser(user);
         setEditFormData({
@@ -85,6 +93,34 @@ const AdminUsers = () => {
         } catch (error) {
             console.error('Failed to update user:', error);
             toast.error(error.message || 'Failed to update user');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const handleRoleClick = (userObj) => {
+        if (userObj.id === user.id) {
+            toast.error('You cannot change your own role');
+            return;
+        }
+        setRoleChangeUser(userObj);
+        setShowRoleModal(true);
+    };
+
+    const handleConfirmRoleChange = async () => {
+        try {
+            setIsSaving(true);
+            const newRole = roleChangeUser.role === 'admin' ? 'user' : 'admin';
+            const response = await adminService.updateUserRole(roleChangeUser.id, newRole);
+
+            if (response.success) {
+                setUsers(users.map(u => u.id === roleChangeUser.id ? { ...u, role: newRole } : u));
+                setShowRoleModal(false);
+                toast.success(`User role updated to ${newRole}`);
+            }
+        } catch (error) {
+            console.error('Failed to update user role:', error);
+            toast.error(error.message || 'Failed to update user role');
         } finally {
             setIsSaving(false);
         }
@@ -189,6 +225,7 @@ const AdminUsers = () => {
                                 <tr className="bg-[#1A1A1A] border-b border-white/10">
                                     <th className="px-4 lg:px-6 py-3 lg:py-4 text-left text-xs lg:text-sm font-semibold text-gray-400">User</th>
                                     <th className="px-4 lg:px-6 py-3 lg:py-4 text-left text-xs lg:text-sm font-semibold text-gray-400">College</th>
+                                    <th className="px-4 lg:px-6 py-3 lg:py-4 text-left text-xs lg:text-sm font-semibold text-gray-400">Role</th>
                                     <th className="px-4 lg:px-6 py-3 lg:py-4 text-left text-xs lg:text-sm font-semibold text-gray-400">Files</th>
                                     <th className="px-4 lg:px-6 py-3 lg:py-4 text-left text-xs lg:text-sm font-semibold text-gray-400">Downloads</th>
                                     <th className="px-4 lg:px-6 py-3 lg:py-4 text-left text-xs lg:text-sm font-semibold text-gray-400">Joined</th>
@@ -197,50 +234,79 @@ const AdminUsers = () => {
                             </thead>
                             <tbody>
                                 {filteredUsers.length > 0 ? (
-                                    filteredUsers.map((user) => (
-                                        <tr key={user.id} className="border-b border-white/5 hover:bg-[#1A1A1A] transition-colors">
+                                    filteredUsers.map((userObj) => (
+                                        <tr key={userObj.id} className="border-b border-white/5 hover:bg-[#1A1A1A] transition-colors">
                                             <td className="px-4 lg:px-6 py-3 lg:py-4">
-                                                <div>
-                                                    <div className="text-white font-medium text-sm lg:text-base">{user.name}</div>
-                                                    <div className="text-xs lg:text-sm text-gray-400 flex items-center gap-1">
-                                                        <Mail size={10} className="lg:w-3 lg:h-3" />
-                                                        {user.email}
+                                                <div className="flex items-center gap-3">
+                                                    <img
+                                                        src={getAvatarUrl(userObj)}
+                                                        alt={userObj.name}
+                                                        className="w-10 h-10 rounded-full bg-white/5 border border-white/10"
+                                                    />
+                                                    <div>
+                                                        <div className="text-white font-medium text-sm lg:text-base">{userObj.name}</div>
+                                                        <div className="text-xs lg:text-sm text-gray-400 flex items-center gap-1">
+                                                            <Mail size={10} className="lg:w-3 lg:h-3" />
+                                                            {userObj.email}
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </td>
                                             <td className="px-4 lg:px-6 py-3 lg:py-4">
                                                 <div className="flex items-center gap-2 text-gray-300 text-sm lg:text-base">
                                                     <Building2 size={14} className="text-gray-500 lg:w-4 lg:h-4" />
-                                                    <span className="truncate max-w-[150px]">{user.college}</span>
+                                                    <span className="truncate max-w-[150px]">{userObj.college}</span>
                                                 </div>
+                                            </td>
+                                            <td className="px-4 lg:px-6 py-3 lg:py-4">
+                                                <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${userObj.role === 'admin'
+                                                        ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
+                                                        : 'bg-gray-500/10 text-gray-400 border border-gray-500/20'
+                                                    }`}>
+                                                    {userObj.role === 'admin' ? <Shield size={12} /> : <ShieldOff size={12} />}
+                                                    {userObj.role === 'admin' ? 'Admin' : 'User'}
+                                                </span>
                                             </td>
                                             <td className="px-4 lg:px-6 py-3 lg:py-4">
                                                 <div className="flex items-center gap-2">
                                                     <FileText size={14} className="text-purple-500 lg:w-4 lg:h-4" />
-                                                    <span className="text-white font-medium text-sm lg:text-base">{user.files_count}</span>
+                                                    <span className="text-white font-medium text-sm lg:text-base">{userObj.files_count}</span>
                                                 </div>
                                             </td>
                                             <td className="px-4 lg:px-6 py-3 lg:py-4">
                                                 <div className="flex items-center gap-2">
                                                     <Eye size={14} className="text-blue-500 lg:w-4 lg:h-4" />
-                                                    <span className="text-white font-medium text-sm lg:text-base">{user.total_downloads}</span>
+                                                    <span className="text-white font-medium text-sm lg:text-base">{userObj.total_downloads}</span>
                                                 </div>
                                             </td>
                                             <td className="px-4 lg:px-6 py-3 lg:py-4 text-gray-400 text-xs lg:text-sm">
-                                                {new Date(user.created_at).toLocaleDateString()}
+                                                {new Date(userObj.created_at).toLocaleDateString()}
                                             </td>
                                             <td className="px-4 lg:px-6 py-3 lg:py-4">
                                                 <div className="flex items-center justify-end gap-2">
                                                     <button
-                                                        onClick={() => handleEditClick(user)}
+                                                        onClick={() => handleRoleClick(userObj)}
+                                                        className={`p-1.5 lg:p-2 rounded-lg transition-colors ${userObj.id === user.id
+                                                                ? 'text-gray-600 cursor-not-allowed'
+                                                                : userObj.role === 'admin'
+                                                                    ? 'text-orange-400 hover:bg-orange-500/10'
+                                                                    : 'text-green-400 hover:bg-green-500/10'
+                                                            }`}
+                                                        title={userObj.id === user.id ? 'Cannot change own role' : (userObj.role === 'admin' ? 'Revoke Admin' : 'Grant Admin')}
+                                                        disabled={userObj.id === user.id}
+                                                    >
+                                                        {userObj.role === 'admin' ? <ShieldOff size={16} className="lg:w-[18px] lg:h-[18px]" /> : <Shield size={16} className="lg:w-[18px] lg:h-[18px]" />}
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleEditClick(userObj)}
                                                         className="p-1.5 lg:p-2 text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors"
                                                         title="Edit User"
                                                     >
                                                         <Edit2 size={16} className="lg:w-[18px] lg:h-[18px]" />
                                                     </button>
-                                                    {user.role !== 'admin' && (
+                                                    {userObj.role !== 'admin' && (
                                                         <button
-                                                            onClick={() => handleDeleteClick(user)}
+                                                            onClick={() => handleDeleteClick(userObj)}
                                                             className="p-1.5 lg:p-2 text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
                                                             title="Delete User"
                                                         >
@@ -253,7 +319,7 @@ const AdminUsers = () => {
                                     ))
                                 ) : (
                                     <tr>
-                                        <td colSpan="6" className="px-6 py-12 text-center text-gray-400">
+                                        <td colSpan="7" className="px-6 py-12 text-center text-gray-400">
                                             No users found matching your search
                                         </td>
                                     </tr>
@@ -283,11 +349,10 @@ const AdminUsers = () => {
                                         <button
                                             key={i}
                                             onClick={() => handlePageChange(i + 1)}
-                                            className={`w-7 h-7 lg:w-8 lg:h-8 rounded-lg text-xs lg:text-sm font-medium transition-colors ${
-                                                pagination.current_page === i + 1
+                                            className={`w-7 h-7 lg:w-8 lg:h-8 rounded-lg text-xs lg:text-sm font-medium transition-colors ${pagination.current_page === i + 1
                                                     ? 'bg-purple-500 text-white'
                                                     : 'text-gray-400 hover:bg-white/5 hover:text-white'
-                                            }`}
+                                                }`}
                                         >
                                             {i + 1}
                                         </button>
@@ -308,62 +373,90 @@ const AdminUsers = () => {
                 {/* Users Cards - Mobile */}
                 <div className="md:hidden space-y-4 mb-6">
                     {filteredUsers.length > 0 ? (
-                        filteredUsers.map((user) => (
+                        filteredUsers.map((userObj) => (
                             <div
-                                key={user.id}
+                                key={userObj.id}
                                 className="bg-[#0A0A0A] border border-white/10 rounded-xl p-4 hover:border-white/20 transition-colors"
                             >
-                                <div className="flex items-start justify-between mb-3">
+                                <div className="flex items-start gap-3 mb-3">
+                                    <img
+                                        src={getAvatarUrl(userObj)}
+                                        alt={userObj.name}
+                                        className="w-12 h-12 rounded-full bg-white/5 border border-white/10"
+                                    />
                                     <div className="flex-1 min-w-0">
-                                        <h3 className="text-white font-semibold text-base mb-1 truncate">{user.name}</h3>
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <h3 className="text-white font-semibold text-base truncate">{userObj.name}</h3>
+                                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${userObj.role === 'admin'
+                                                    ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
+                                                    : 'bg-gray-500/10 text-gray-400 border border-gray-500/20'
+                                                }`}>
+                                                {userObj.role === 'admin' ? <Shield size={10} /> : <ShieldOff size={10} />}
+                                                {userObj.role === 'admin' ? 'Admin' : 'User'}
+                                            </span>
+                                        </div>
                                         <div className="flex items-center gap-1 text-xs text-gray-400 mb-2">
                                             <Mail size={10} />
-                                            <span className="truncate">{user.email}</span>
+                                            <span className="truncate">{userObj.email}</span>
                                         </div>
                                         <div className="flex items-center gap-1 text-xs text-gray-400">
                                             <Building2 size={10} />
-                                            <span className="truncate">{user.college}</span>
+                                            <span className="truncate">{userObj.college}</span>
                                         </div>
-                                    </div>
-                                    <div className="flex items-center gap-1 ml-2">
-                                        <button
-                                            onClick={() => handleEditClick(user)}
-                                            className="p-2 text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors"
-                                        >
-                                            <Edit2 size={16} />
-                                        </button>
-                                        {user.role !== 'admin' && (
-                                            <button
-                                                onClick={() => handleDeleteClick(user)}
-                                                className="p-2 text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
-                                            >
-                                                <Trash2 size={16} />
-                                            </button>
-                                        )}
                                     </div>
                                 </div>
 
-                                <div className="grid grid-cols-3 gap-3 pt-3 border-t border-white/10">
+                                <div className="grid grid-cols-3 gap-3 pt-3 mb-3 border-t border-white/10">
                                     <div className="text-center">
                                         <div className="flex items-center justify-center gap-1 mb-1">
                                             <FileText size={12} className="text-purple-500" />
-                                            <span className="text-white font-semibold text-sm">{user.files_count}</span>
+                                            <span className="text-white font-semibold text-sm">{userObj.files_count}</span>
                                         </div>
                                         <span className="text-xs text-gray-400">Files</span>
                                     </div>
                                     <div className="text-center">
                                         <div className="flex items-center justify-center gap-1 mb-1">
                                             <Eye size={12} className="text-blue-500" />
-                                            <span className="text-white font-semibold text-sm">{user.total_downloads}</span>
+                                            <span className="text-white font-semibold text-sm">{userObj.total_downloads}</span>
                                         </div>
                                         <span className="text-xs text-gray-400">Downloads</span>
                                     </div>
                                     <div className="text-center">
                                         <div className="text-white font-semibold text-sm mb-1">
-                                            {new Date(user.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                            {new Date(userObj.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                                         </div>
                                         <span className="text-xs text-gray-400">Joined</span>
                                     </div>
+                                </div>
+
+                                <div className="flex items-center gap-2 pt-3 border-t border-white/10">
+                                    <button
+                                        onClick={() => handleRoleClick(userObj)}
+                                        disabled={userObj.id === user.id}
+                                        className={`flex-1 h-9 flex items-center justify-center gap-1 rounded-lg font-medium text-xs transition-colors ${userObj.id === user.id
+                                                ? 'bg-gray-500/10 text-gray-600 cursor-not-allowed'
+                                                : userObj.role === 'admin'
+                                                    ? 'bg-orange-500/10 text-orange-400 hover:bg-orange-500/20'
+                                                    : 'bg-green-500/10 text-green-400 hover:bg-green-500/20'
+                                            }`}
+                                    >
+                                        {userObj.role === 'admin' ? <ShieldOff size={14} /> : <Shield size={14} />}
+                                        {userObj.role === 'admin' ? 'Revoke Admin' : 'Grant Admin'}
+                                    </button>
+                                    <button
+                                        onClick={() => handleEditClick(userObj)}
+                                        className="p-2 text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors"
+                                    >
+                                        <Edit2 size={16} />
+                                    </button>
+                                    {userObj.role !== 'admin' && (
+                                        <button
+                                            onClick={() => handleDeleteClick(userObj)}
+                                            className="p-2 text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+                                        >
+                                            <Trash2 size={16} />
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                         ))
@@ -405,11 +498,10 @@ const AdminUsers = () => {
                                             <button
                                                 key={i}
                                                 onClick={() => handlePageChange(pageNum)}
-                                                className={`w-8 h-8 rounded-lg text-sm font-medium transition-colors ${
-                                                    pagination.current_page === pageNum
+                                                className={`w-8 h-8 rounded-lg text-sm font-medium transition-colors ${pagination.current_page === pageNum
                                                         ? 'bg-purple-500 text-white'
                                                         : 'text-gray-400 hover:bg-white/5 hover:text-white'
-                                                }`}
+                                                    }`}
                                             >
                                                 {pageNum}
                                             </button>
@@ -503,6 +595,67 @@ const AdminUsers = () => {
                                         )}
                                     </button>
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Role Change Confirmation Modal */}
+                {showRoleModal && (
+                    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 px-4">
+                        <div className="bg-[#0A0A0A] border border-white/10 rounded-xl sm:rounded-2xl p-6 sm:p-8 max-w-md w-full">
+                            <div className="text-center mb-4 sm:mb-6">
+                                <div className={`w-14 h-14 sm:w-16 sm:h-16 rounded-full flex items-center justify-center mx-auto mb-4 ${roleChangeUser?.role === 'admin'
+                                        ? 'bg-orange-500/10'
+                                        : 'bg-green-500/10'
+                                    }`}>
+                                    {roleChangeUser?.role === 'admin' ? (
+                                        <ShieldOff size={28} className="text-orange-500 sm:w-8 sm:h-8" />
+                                    ) : (
+                                        <Shield size={28} className="text-green-500 sm:w-8 sm:h-8" />
+                                    )}
+                                </div>
+                                <h3 className="text-xl sm:text-2xl font-bold text-white mb-2">
+                                    {roleChangeUser?.role === 'admin' ? 'Revoke Admin Role' : 'Grant Admin Role'}
+                                </h3>
+                                <p className="text-gray-400 text-sm sm:text-base">
+                                    Are you sure you want to {roleChangeUser?.role === 'admin' ? 'revoke admin privileges from' : 'grant admin privileges to'}{' '}
+                                    <span className="text-white font-semibold">{roleChangeUser?.name}</span>?
+                                    {roleChangeUser?.role !== 'admin' && (
+                                        <span className="block mt-2 text-xs sm:text-sm text-yellow-400">
+                                            ⚠️ This user will have full access to admin features.
+                                        </span>
+                                    )}
+                                </p>
+                            </div>
+
+                            <div className="flex gap-2 sm:gap-3">
+                                <button
+                                    onClick={() => setShowRoleModal(false)}
+                                    disabled={isSaving}
+                                    className="flex-1 h-10 sm:h-12 px-4 sm:px-6 bg-white/5 border border-white/10 text-white rounded-lg font-semibold text-sm sm:text-base hover:bg-white/10 transition-colors disabled:opacity-50"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handleConfirmRoleChange}
+                                    disabled={isSaving}
+                                    className={`flex-1 h-10 sm:h-12 px-4 sm:px-6 text-white rounded-lg font-semibold text-sm sm:text-base transition-colors disabled:opacity-50 flex items-center justify-center gap-2 ${roleChangeUser?.role === 'admin'
+                                            ? 'bg-orange-500 hover:bg-orange-600'
+                                            : 'bg-green-500 hover:bg-green-600'
+                                        }`}
+                                >
+                                    {isSaving ? (
+                                        <>
+                                            <Loader size={16} className="animate-spin sm:w-[18px] sm:h-[18px]" />
+                                            <span className="hidden sm:inline">Updating...</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            {roleChangeUser?.role === 'admin' ? 'Revoke Admin' : 'Grant Admin'}
+                                        </>
+                                    )}
+                                </button>
                             </div>
                         </div>
                     </div>

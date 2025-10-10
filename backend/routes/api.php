@@ -121,6 +121,12 @@ try {
         exit();
     }
 
+    if ($method === 'PATCH' && preg_match('#^/api/admin/users/(\d+)/role$#', $uri, $matches)) {
+        AdminMiddleware::checkAdmin();
+        AdminController::updateUserRole($matches[1]);
+        exit();
+    }
+
     if ($method === 'DELETE' && preg_match('#^/api/admin/users/(\d+)$#', $uri, $matches)) {
         AdminMiddleware::checkAdmin();
         AdminController::deleteUser($matches[1]);
@@ -241,16 +247,15 @@ try {
 
     // 404 - Route not found
     Response::error('Route not found', 404);
-    
 } catch (Exception $e) {
     // Log error in development
     if (!$isProduction) {
         $logFile = BASE_PATH . '/debug.log';
         @file_put_contents($logFile, date('Y-m-d H:i:s') . " | ERROR: {$e->getMessage()}\n", FILE_APPEND);
     }
-    
+
     Response::error(
-        $isProduction ? 'An error occurred' : $e->getMessage(), 
+        $isProduction ? 'An error occurred' : $e->getMessage(),
         500
     );
 }
