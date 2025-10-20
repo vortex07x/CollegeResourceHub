@@ -54,10 +54,34 @@ const FileInfoModal = ({ isOpen, onClose, fileInfo, isAuthenticated }) => {
     return colors[category] || colors.other;
   };
 
+  // Normalize file data to ensure all required fields are present
+  const normalizeFileData = () => {
+    const file = fileInfo;
+    
+    return {
+      id: file.id,
+      title: file.title,
+      file_name: file.file_name || file.name || '',
+      file_type: (file.file_type || file.type || '').toLowerCase(),
+      file_size: file.file_size || 0,
+      category: file.category || file.rawCategory || 'other',
+      subject: file.subject || 'N/A',
+      semester: file.semester || 'N/A',
+      description: file.description || '',
+      uploaded_by: file.uploaded_by || file.uploadedBy || 'Unknown',
+      uploader_email: file.uploader_email || 'N/A',
+      uploader_college: file.uploader_college || '',
+      created_at: file.created_at || new Date().toISOString(),
+      download_count: file.download_count || file.views || 0,
+    };
+  };
+
+  const normalizedFile = normalizeFileData();
+
   const handleConvertClick = () => {
     onClose();
-    // Pass file data via state AND fileId via URL for direct access
-    navigate(`/conversion?fileId=${fileInfo.id}`, { state: { file: fileInfo } });
+    // Pass normalized file data via state AND fileId via URL for direct access
+    navigate(`/conversion?fileId=${normalizedFile.id}`, { state: { file: normalizedFile } });
   };
 
   const handleDownload = async () => {
@@ -73,7 +97,7 @@ const FileInfoModal = ({ isOpen, onClose, fileInfo, isAuthenticated }) => {
       setIsDownloading(true);
       toast.loading('Preparing download...', { id: 'download' });
 
-      await fileService.downloadFile(fileInfo.id, fileInfo.file_name);
+      await fileService.downloadFile(normalizedFile.id, normalizedFile.file_name);
 
       toast.success('Download started!', { id: 'download' });
     } catch (error) {
@@ -97,7 +121,7 @@ const FileInfoModal = ({ isOpen, onClose, fileInfo, isAuthenticated }) => {
 
           <div className="flex items-center gap-4">
             <div className="file-info-icon w-16 h-16 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center border border-white/30">
-              {fileInfo.file_type === 'pdf' ? (
+              {normalizedFile.file_type === 'pdf' ? (
                 <FileText size={32} className="text-white" />
               ) : (
                 <File size={32} className="text-white" />
@@ -105,11 +129,11 @@ const FileInfoModal = ({ isOpen, onClose, fileInfo, isAuthenticated }) => {
             </div>
             <div>
               <div className="flex items-center gap-2 mb-1">
-                <span className={`file-info-badge px-3 py-1 rounded-full text-xs font-semibold border ${getCategoryColor(fileInfo.category)}`}>
-                  {getCategoryLabel(fileInfo.category)}
+                <span className={`file-info-badge px-3 py-1 rounded-full text-xs font-semibold border ${getCategoryColor(normalizedFile.category)}`}>
+                  {getCategoryLabel(normalizedFile.category)}
                 </span>
                 <span className="file-info-badge px-3 py-1 rounded-full text-xs font-semibold bg-white/20 text-white border border-white/30 uppercase">
-                  {fileInfo.file_type}
+                  {normalizedFile.file_type}
                 </span>
               </div>
             </div>
@@ -118,12 +142,12 @@ const FileInfoModal = ({ isOpen, onClose, fileInfo, isAuthenticated }) => {
 
         <div className="modal-body flex-1 overflow-y-auto p-6">
           <h2 className="text-2xl font-bold text-white mb-2 leading-tight">
-            {fileInfo.title}
+            {normalizedFile.title}
           </h2>
 
-          {fileInfo.description && (
+          {normalizedFile.description && (
             <p className="text-gray-400 mb-6 leading-relaxed">
-              {fileInfo.description}
+              {normalizedFile.description}
             </p>
           )}
 
@@ -135,7 +159,7 @@ const FileInfoModal = ({ isOpen, onClose, fileInfo, isAuthenticated }) => {
                 </div>
                 <div>
                   <p className="file-info-card-label text-xs text-gray-500 font-medium">Subject</p>
-                  <p className="file-info-card-value text-sm font-semibold text-white">{fileInfo.subject || 'N/A'}</p>
+                  <p className="file-info-card-value text-sm font-semibold text-white">{normalizedFile.subject || 'N/A'}</p>
                 </div>
               </div>
             </div>
@@ -147,7 +171,7 @@ const FileInfoModal = ({ isOpen, onClose, fileInfo, isAuthenticated }) => {
                 </div>
                 <div>
                   <p className="file-info-card-label text-xs text-gray-500 font-medium">Semester</p>
-                  <p className="file-info-card-value text-sm font-semibold text-white">{fileInfo.semester || 'N/A'}</p>
+                  <p className="file-info-card-value text-sm font-semibold text-white">{normalizedFile.semester || 'N/A'}</p>
                 </div>
               </div>
             </div>
@@ -159,7 +183,7 @@ const FileInfoModal = ({ isOpen, onClose, fileInfo, isAuthenticated }) => {
                 </div>
                 <div>
                   <p className="file-info-card-label text-xs text-gray-500 font-medium">File Size</p>
-                  <p className="file-info-card-value text-sm font-semibold text-white">{formatFileSize(fileInfo.file_size)}</p>
+                  <p className="file-info-card-value text-sm font-semibold text-white">{formatFileSize(normalizedFile.file_size)}</p>
                 </div>
               </div>
             </div>
@@ -171,7 +195,7 @@ const FileInfoModal = ({ isOpen, onClose, fileInfo, isAuthenticated }) => {
                 </div>
                 <div>
                   <p className="file-info-card-label text-xs text-gray-500 font-medium">Downloads</p>
-                  <p className="file-info-card-value text-sm font-semibold text-white">{fileInfo.download_count || 0}</p>
+                  <p className="file-info-card-value text-sm font-semibold text-white">{normalizedFile.download_count || 0}</p>
                 </div>
               </div>
             </div>
@@ -185,16 +209,16 @@ const FileInfoModal = ({ isOpen, onClose, fileInfo, isAuthenticated }) => {
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-sm text-gray-400">Name</span>
-                <span className="text-sm font-medium text-white">{fileInfo.uploaded_by || 'Unknown'}</span>
+                <span className="text-sm font-medium text-white">{normalizedFile.uploaded_by || 'Unknown'}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-gray-400">Email</span>
-                <span className="text-sm font-medium text-white">{fileInfo.uploader_email || 'N/A'}</span>
+                <span className="text-sm font-medium text-white">{normalizedFile.uploader_email || 'N/A'}</span>
               </div>
-              {fileInfo.uploader_college && (
+              {normalizedFile.uploader_college && (
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-gray-400">College</span>
-                  <span className="text-sm font-medium text-white">{fileInfo.uploader_college}</span>
+                  <span className="text-sm font-medium text-white">{normalizedFile.uploader_college}</span>
                 </div>
               )}
             </div>
@@ -208,12 +232,12 @@ const FileInfoModal = ({ isOpen, onClose, fileInfo, isAuthenticated }) => {
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 font-medium">Uploaded</p>
-                  <p className="text-sm font-semibold text-white">{formatDate(fileInfo.created_at)}</p>
+                  <p className="text-sm font-semibold text-white">{formatDate(normalizedFile.created_at)}</p>
                 </div>
               </div>
               <div className="text-right">
                 <p className="text-xs text-gray-500">Full Date</p>
-                <p className="text-xs text-gray-400">{new Date(fileInfo.created_at).toLocaleDateString('en-US', {
+                <p className="text-xs text-gray-400">{new Date(normalizedFile.created_at).toLocaleDateString('en-US', {
                   year: 'numeric',
                   month: 'long',
                   day: 'numeric'
