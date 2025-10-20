@@ -23,7 +23,7 @@ const FileInfoModal = ({ isOpen, onClose, fileInfo, isAuthenticated }) => {
     const now = new Date();
     const diffTime = Math.abs(now - date);
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
+
     if (diffDays === 0) return 'Today';
     if (diffDays === 1) return 'Yesterday';
     if (diffDays < 7) return `${diffDays} days ago`;
@@ -56,7 +56,8 @@ const FileInfoModal = ({ isOpen, onClose, fileInfo, isAuthenticated }) => {
 
   const handleConvertClick = () => {
     onClose();
-    navigate('/conversion', { state: { file: fileInfo } });
+    // Pass file data via state AND fileId via URL for direct access
+    navigate(`/conversion?fileId=${fileInfo.id}`, { state: { file: fileInfo } });
   };
 
   const handleDownload = async () => {
@@ -65,15 +66,15 @@ const FileInfoModal = ({ isOpen, onClose, fileInfo, isAuthenticated }) => {
       navigate('/login');
       return;
     }
-    
+
     if (isDownloading) return;
-    
+
     try {
       setIsDownloading(true);
       toast.loading('Preparing download...', { id: 'download' });
-      
+
       await fileService.downloadFile(fileInfo.id, fileInfo.file_name);
-      
+
       toast.success('Download started!', { id: 'download' });
     } catch (error) {
       console.error('Download failed:', error);
@@ -93,7 +94,7 @@ const FileInfoModal = ({ isOpen, onClose, fileInfo, isAuthenticated }) => {
           >
             <X size={20} />
           </button>
-          
+
           <div className="flex items-center gap-4">
             <div className="file-info-icon w-16 h-16 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center border border-white/30">
               {fileInfo.file_type === 'pdf' ? (
@@ -212,10 +213,10 @@ const FileInfoModal = ({ isOpen, onClose, fileInfo, isAuthenticated }) => {
               </div>
               <div className="text-right">
                 <p className="text-xs text-gray-500">Full Date</p>
-                <p className="text-xs text-gray-400">{new Date(fileInfo.created_at).toLocaleDateString('en-US', { 
-                  year: 'numeric', 
-                  month: 'long', 
-                  day: 'numeric' 
+                <p className="text-xs text-gray-400">{new Date(fileInfo.created_at).toLocaleDateString('en-US', {
+                  year: 'numeric',
+                  month: 'long',
+                  day: 'numeric'
                 })}</p>
               </div>
             </div>
@@ -232,9 +233,8 @@ const FileInfoModal = ({ isOpen, onClose, fileInfo, isAuthenticated }) => {
           <button
             onClick={handleDownload}
             disabled={isDownloading || !isAuthenticated}
-            className={`modal-button px-6 h-11 bg-white/5 border border-white/10 rounded-lg text-white font-medium hover:bg-white/10 transition-colors flex items-center gap-2 ${
-              isDownloading || !isAuthenticated ? 'opacity-50 cursor-not-allowed' : ''
-            }`}
+            className={`modal-button px-6 h-11 bg-white/5 border border-white/10 rounded-lg text-white font-medium hover:bg-white/10 transition-colors flex items-center gap-2 ${isDownloading || !isAuthenticated ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
             title={!isAuthenticated ? 'Login to download' : 'Download file'}
           >
             <Download size={18} />

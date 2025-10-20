@@ -1,14 +1,20 @@
 import { useState, useEffect } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeft, FileText, File, Download, Save, RefreshCw, CheckCircle, AlertCircle } from 'lucide-react';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { ArrowLeft, FileText, File, Download, Save, RefreshCw, CheckCircle, AlertCircle, Loader } from 'lucide-react';
 import { fileService } from '../services/fileService';
 import { toast } from 'react-hot-toast';
 
 const ConversionPage = () => {
     const location = useLocation();
     const navigate = useNavigate();
-    const fileData = location.state?.file;
+    const [searchParams] = useSearchParams();
+    
+    // Get file data from navigation state OR URL parameter
+    const stateFileData = location.state?.file;
+    const fileIdFromUrl = searchParams.get('fileId');
 
+    const [fileData, setFileData] = useState(stateFileData || null);
+    const [isLoadingFile, setIsLoadingFile] = useState(!stateFileData && !!fileIdFromUrl);
     const [conversionType, setConversionType] = useState('');
     const [isConverting, setIsConverting] = useState(false);
     const [convertedFile, setConvertedFile] = useState(null);
@@ -18,24 +24,68 @@ const ConversionPage = () => {
         saved: false,
     });
 
+    // Fetch file data if coming from direct URL
     useEffect(() => {
-        if (!fileData) {
-            toast.error('No file selected for conversion');
-            navigate('/my-files');
-        }
-    }, [fileData, navigate]);
+        const fetchFileData = async () => {
+            if (!stateFileData && fileIdFromUrl) {
+                try {
+                    setIsLoadingFile(true);
+                    const response = await fileService.getFileInfo(fileIdFromUrl);
+                    
+                    // Transform the response to match expected format
+                    const transformedFile = {
+                        id: response.data.id,
+                        title: response.data.title,
+                        file_name: response.data.file_name,
+                        file_type: response.data.file_type?.toLowerCase(),
+                        file_size: response.data.file_size,
+                        category: response.data.category,
+                        subject: response.data.subject,
+                        semester: response.data.semester,
+                        description: response.data.description,
+                        uploaded_by: response.data.uploaded_by,
+                        created_at: response.data.created_at,
+                        download_count: response.data.download_count,
+                    };
+                    
+                    setFileData(transformedFile);
+                } catch (error) {
+                    console.error('Failed to fetch file data:', error);
+                    toast.error('Failed to load file information');
+                    navigate('/my-files');
+                } finally {
+                    setIsLoadingFile(false);
+                }
+            } else if (!stateFileData && !fileIdFromUrl) {
+                toast.error('No file selected for conversion');
+                navigate('/my-files');
+            }
+        };
+
+        fetchFileData();
+    }, [fileIdFromUrl, stateFileData, navigate]);
 
     // Cleanup temp file when leaving the page
     useEffect(() => {
         return () => {
             if (convertedFile?.temp_file_path) {
-                // Cleanup temp file when component unmounts
                 fileService.cleanupTempFile(convertedFile.temp_file_path).catch(err => {
                     console.error('Cleanup failed:', err);
                 });
             }
         };
     }, [convertedFile]);
+
+    if (isLoadingFile) {
+        return (
+            <div className="min-h-screen bg-black pt-20 px-8 pb-16 flex items-center justify-center">
+                <div className="text-center">
+                    <Loader size={48} className="text-purple-500 animate-spin mx-auto mb-4" />
+                    <p className="text-white font-medium">Loading file information...</p>
+                </div>
+            </div>
+        );
+    }
 
     if (!fileData) return null;
 
@@ -94,16 +144,12 @@ const ConversionPage = () => {
         try {
             toast.loading('Saving and downloading...', { id: 'save-download' });
 
-            // 🔧 FIX: Download FIRST, then save
-            // This ensures the temp file exists when we try to download it
-            
-            // Step 1: Download the file (if not already downloaded)
+            // Download FIRST, then save
             if (!completedActions.downloaded) {
                 await fileService.downloadConvertedFile(convertedFile.temp_file_path, convertedFile.converted_file_name);
                 setCompletedActions(prev => ({ ...prev, downloaded: true }));
             }
 
-            // Step 2: Save to database (if not already saved)
             if (!completedActions.saved) {
                 await fileService.saveConvertedFile(fileData.id, convertedFile.temp_file_path);
                 setCompletedActions(prev => ({ ...prev, saved: true }));
@@ -111,10 +157,8 @@ const ConversionPage = () => {
 
             toast.success('File saved and downloaded!', { id: 'save-download' });
 
-            // Step 3: Cleanup temp file
             await fileService.cleanupTempFile(convertedFile.temp_file_path);
 
-            // Redirect after short delay
             setTimeout(() => navigate('/my-files'), 1500);
         } catch (error) {
             console.error('Save and download failed:', error);
@@ -125,7 +169,6 @@ const ConversionPage = () => {
     const handleSaveOnly = async () => {
         if (completedActions.saved) {
             toast.success('File already saved!');
-            // Cleanup and redirect
             await fileService.cleanupTempFile(convertedFile.temp_file_path);
             setTimeout(() => navigate('/my-files'), 1500);
             return;
@@ -139,10 +182,8 @@ const ConversionPage = () => {
 
             toast.success('File saved successfully!', { id: 'save' });
 
-            // Cleanup temp file
             await fileService.cleanupTempFile(convertedFile.temp_file_path);
 
-            // Redirect after short delay
             setTimeout(() => navigate('/my-files'), 1500);
         } catch (error) {
             console.error('Save failed:', error);
@@ -158,11 +199,11 @@ const ConversionPage = () => {
             <div className="max-w-5xl mx-auto">
                 {/* Back Button */}
                 <button
-                    onClick={() => navigate('/my-files')}
+                    onClick={() => navigate(-1)}
                     className="flex items-center gap-2 text-gray-400 hover:text-white mb-8 transition-colors"
                 >
                     <ArrowLeft size={20} />
-                    Back to My Files
+                    Back
                 </button>
 
                 {/* Page Header */}
@@ -190,7 +231,7 @@ const ConversionPage = () => {
                             <div className="flex items-center gap-4 text-sm text-gray-400">
                                 <span className="uppercase font-medium">{fileData.file_type}</span>
                                 <span>•</span>
-                                <span>{fileData.size || formatFileSize(fileData.file_size)}</span>
+                                <span>{formatFileSize(fileData.file_size)}</span>
                             </div>
                         </div>
                     </div>
