@@ -51,8 +51,7 @@ try {
     $required = [
         'DB_HOST', 
         'DB_NAME', 
-        'DB_USER', 
-        'DB_PASSWORD',
+        'DB_USER',
         'JWT_SECRET', 
         'CLOUDINARY_CLOUD_NAME', 
         'CLOUDINARY_API_KEY', 
@@ -64,6 +63,11 @@ try {
         if (env($var) === null) {
             $missing[] = $var;
         }
+    }
+    
+    // Check for database password (supports both DB_PASS and DB_PASSWORD)
+    if (env('DB_PASS') === null && env('DB_PASSWORD') === null) {
+        $missing[] = 'DB_PASS or DB_PASSWORD';
     }
     
     if (!empty($missing)) {
