@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { toast } from 'react-hot-toast';
+import useAuthStore from '../store/useAuthStore';
 
 // Use environment variable or fallback to production URL
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://collegeresourcehub.onrender.com/api';
@@ -12,19 +13,34 @@ const api = axios.create({
     'Content-Type': 'application/json',
   },
   withCredentials: false,
-  timeout: 60000, // ✅ Increased to 60 seconds for cold starts
+  timeout: 60000, // Increased to 60 seconds for cold starts
 });
 
-// ✅ NEW: Global state for cold start detection
+// Global state for cold start detection
 let isServerWarming = false;
 let warmupListeners = [];
 
-// ✅ NEW: Function to notify warmup state changes
+// Function to notify warmup state changes
 const notifyWarmupStateChange = (state) => {
   warmupListeners.forEach(listener => listener(state));
+  
+  // Update Zustand store
+  const authStore = useAuthStore.getState();
+  if (state.status === 'warming') {
+    authStore.setServerWarmupStatus('warming');
+    authStore.setServerRetryCount(state.retryCount);
+  } else if (state.status === 'ready') {
+    authStore.setServerWarmupStatus('ready');
+    // Auto-hide after 2 seconds
+    setTimeout(() => {
+      authStore.resetServerWarmup();
+    }, 2000);
+  } else if (state.status === 'error') {
+    authStore.setServerWarmupStatus('error');
+  }
 };
 
-// ✅ NEW: Subscribe to warmup state changes
+// Subscribe to warmup state changes
 export const subscribeToWarmupState = (callback) => {
   warmupListeners.push(callback);
   return () => {
@@ -32,7 +48,7 @@ export const subscribeToWarmupState = (callback) => {
   };
 };
 
-// ✅ NEW: Health check function (optional)
+// Health check function
 export const checkServerHealth = async () => {
   try {
     const response = await axios.get(`${API_BASE_URL.replace('/api', '')}/health`, {
@@ -47,7 +63,7 @@ export const checkServerHealth = async () => {
 // Request interceptor for adding auth token
 api.interceptors.request.use(
   (config) => {
-    // ✅ NEW: Block requests if server is warming up (except health checks)
+    // Block requests if server is warming up (except health checks)
     if (isServerWarming && !config.url?.includes('health')) {
       return Promise.reject(new Error('Server is warming up'));
     }
@@ -94,11 +110,18 @@ api.interceptors.request.use(
 
 // Response interceptor for handling errors, token expiration, and retries
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // Reset warmup state on successful response
+    if (isServerWarming) {
+      isServerWarming = false;
+      notifyWarmupStateChange({ status: 'ready', retryCount: 0 });
+    }
+    return response;
+  },
   async (error) => {
     const config = error.config;
 
-    // ✅ ENHANCED: Handle timeout errors with cold start detection
+    // Handle timeout errors with cold start detection
     if (error.code === 'ECONNABORTED' && error.message.includes('timeout')) {
       config._retryCount = config._retryCount || 0;
 
@@ -108,7 +131,7 @@ api.interceptors.response.use(
         notifyWarmupStateChange({ status: 'warming', retryCount: 0 });
       }
 
-      // Retry up to 3 times for timeouts (increased from 2)
+      // Retry up to 3 times for timeouts
       if (config._retryCount < 3) {
         config._retryCount += 1;
         
@@ -152,11 +175,11 @@ api.interceptors.response.use(
       }
     }
 
-    // ✅ ENHANCED: Handle network errors with cold start detection
+    // Handle network errors with cold start detection
     if (!error.response) {
       console.error('❌ Network Error:', error.message);
       
-      // Check if it's a cold start scenario (not already warming and not a "warming up" rejection)
+      // Check if it's a cold start scenario
       if (!isServerWarming && error.message !== 'Server is warming up' && error.code !== 'ECONNABORTED') {
         // Could be a cold start - trigger warmup detection
         isServerWarming = true;

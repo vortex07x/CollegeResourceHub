@@ -3,11 +3,14 @@ import { ArrowRight, Upload, FolderOpen, Grid3x3, Users, FileText, Download, Tre
 import { useEffect, useRef, useState } from 'react';
 import { motion, useScroll, useTransform, useInView } from 'framer-motion';
 import TopDownloadedSection from '../components/home/TopDownloadedSection';
+import ServerWarmupBanner from '../components/common/ServerWarmupBanner';
+import useAuthStore from '../store/useAuthStore';
 
 const Home = () => {
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
   const heroRef = useRef(null);
   const { scrollYProgress } = useScroll();
+  const { serverWarmupStatus } = useAuthStore();
 
   const heroY = useTransform(scrollYProgress, [0, 0.3], [0, 100]);
   const heroOpacity = useTransform(scrollYProgress, [0, 0.3], [1, 0]);
@@ -25,6 +28,13 @@ const Home = () => {
 
   return (
     <div className="bg-black min-h-screen overflow-hidden">
+      {/* Server Warmup Banner */}
+      <ServerWarmupBanner
+        isVisible={serverWarmupStatus !== 'idle' && serverWarmupStatus !== 'ready'}
+        status={serverWarmupStatus}
+        retryCount={useAuthStore((state) => state.serverRetryCount)}
+      />
+
       {/* Hero Section */}
       <motion.section
         ref={heroRef}

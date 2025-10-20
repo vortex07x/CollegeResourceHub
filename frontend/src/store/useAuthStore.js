@@ -9,6 +9,8 @@ const useAuthStore = create(
       isAuthenticated: authService.isAuthenticated(),
       isLoading: false,
       error: null,
+      serverWarmupStatus: 'idle', // 'idle', 'warming', 'ready', 'error'
+      serverRetryCount: 0,
 
       login: async (credentials, rememberMe = false) => {
         set({ isLoading: true, error: null });
@@ -124,7 +126,20 @@ const useAuthStore = create(
         } else {
           set({ user, isAuthenticated: true });
         }
-      }
+      },
+
+      // Server warmup state management
+      setServerWarmupStatus: (status) => {
+        set({ serverWarmupStatus: status });
+      },
+
+      setServerRetryCount: (count) => {
+        set({ serverRetryCount: count });
+      },
+
+      resetServerWarmup: () => {
+        set({ serverWarmupStatus: 'idle', serverRetryCount: 0 });
+      },
     }),
     {
       name: 'auth-storage',

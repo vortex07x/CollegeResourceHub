@@ -2,10 +2,11 @@ import { Link, useLocation } from 'react-router-dom';
 import { Home, FolderOpen, FileText, User, LogOut, Menu, X } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import useAuthStore from '../../store/useAuthStore';
+import ServerWarmupBanner from './ServerWarmupBanner';
 
 const Navbar = () => {
   const location = useLocation();
-  const { isAuthenticated, user, logout, checkAuth } = useAuthStore();
+  const { isAuthenticated, user, logout, checkAuth, serverWarmupStatus } = useAuthStore();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Check auth on mount and when auth-expired event fires
@@ -58,6 +59,13 @@ const Navbar = () => {
 
   return (
     <>
+      {/* Server Warmup Banner */}
+      <ServerWarmupBanner 
+        isVisible={serverWarmupStatus === 'warming' || serverWarmupStatus === 'error'}
+        status={serverWarmupStatus}
+        retryCount={useAuthStore((state) => state.serverRetryCount)}
+      />
+
       <nav className="navbar-main">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
