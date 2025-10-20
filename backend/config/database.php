@@ -40,7 +40,8 @@ class Database {
         $this->port = $_ENV['DB_PORT'] ?? getenv('DB_PORT') ?? '5432';
         $this->db_name = $_ENV['DB_NAME'] ?? getenv('DB_NAME');
         $this->username = $_ENV['DB_USER'] ?? getenv('DB_USER');
-        $this->password = $_ENV['DB_PASSWORD'] ?? getenv('DB_PASSWORD');  // CHANGED: DB_PASS → DB_PASSWORD
+        // FIXED: Check both DB_PASS and DB_PASSWORD for compatibility
+        $this->password = $_ENV['DB_PASS'] ?? getenv('DB_PASS') ?? $_ENV['DB_PASSWORD'] ?? getenv('DB_PASSWORD');
     }
 
     public function connect() {
@@ -51,8 +52,9 @@ class Database {
                    ";port=" . $this->port . 
                    ";dbname=" . $this->db_name;
             
-            // Add SSL mode for production (Render requires SSL)
-            if (strpos($this->host, 'render.com') !== false) {
+            // Add SSL mode for Render and Supabase
+            if (strpos($this->host, 'render.com') !== false || 
+                strpos($this->host, 'supabase.com') !== false) {
                 $dsn .= ";sslmode=require";
             }
 
@@ -63,7 +65,8 @@ class Database {
                 [
                     PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
                     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-                    PDO::ATTR_EMULATE_PREPARES => false
+                    PDO::ATTR_EMULATE_PREPARES => false,
+                    PDO::ATTR_PERSISTENT => false // Recommended for connection pooling
                 ]
             );
             
