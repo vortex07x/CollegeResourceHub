@@ -29,25 +29,58 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
 // Load Response utility
 require_once __DIR__ . '/utils/Response.php';
 
-// Helper function to get environment variable
+// Helper function to get environment variable with fallbacks
 function env($key, $default = null) {
-    $value = getenv($key);
-    if ($value === false) {
-        $value = $_ENV[$key] ?? $_SERVER[$key] ?? $default;
+    // Try $_ENV first
+    if (isset($_ENV[$key]) && $_ENV[$key] !== '') {
+        return $_ENV[$key];
     }
-    return $value;
+    
+    // Try getenv()
+    $value = getenv($key);
+    if ($value !== false && $value !== '') {
+        return $value;
+    }
+    
+    // Try $_SERVER
+    if (isset($_SERVER[$key]) && $_SERVER[$key] !== '') {
+        return $_SERVER[$key];
+    }
+    
+    return $default;
 }
 
 // Load environment variables
 try {
-    // For production (Render), environment variables are already set
+    // For production (Render), environment variables are set via dashboard
     // For local development, load from .env file
-    if (!$isProduction && file_exists(__DIR__ . '/.env')) {
-        $dotenv = Dotenv\Dotenv::createImmutable(__DIR__);
-        $dotenv->load();
+    if (!$isProduction) {
+        if (file_exists(__DIR__ . '/.env')) {
+            $dotenv = Dotenv\Dotenv::createImmutable(__DIR__);
+            $dotenv->load();
+        }
+    } else {
+        // In production on Render, manually populate $_ENV from getenv()
+        // This ensures consistency across different PHP configurations
+        $envVars = [
+            'DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASS', 'DB_PASSWORD',
+            'JWT_SECRET', 'JWT_EXPIRY',
+            'CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET', 'CLOUDINARY_UPLOAD_PRESET',
+            'BREVO_API_KEY', 'BREVO_SENDER_EMAIL', 'BREVO_SENDER_NAME',
+            'FRONTEND_URL', 'OTP_EXPIRY_MINUTES'
+        ];
+        
+        foreach ($envVars as $var) {
+            if (!isset($_ENV[$var])) {
+                $value = getenv($var);
+                if ($value !== false) {
+                    $_ENV[$var] = $value;
+                }
+            }
+        }
     }
     
-    // Verify required environment variables
+    // Verify critical environment variables
     $required = [
         'DB_HOST', 
         'DB_NAME', 
@@ -55,10 +88,12 @@ try {
         'JWT_SECRET', 
         'CLOUDINARY_CLOUD_NAME', 
         'CLOUDINARY_API_KEY', 
-        'CLOUDINARY_API_SECRET'
+        'CLOUDINARY_API_SECRET',
+        'BREVO_API_KEY',
+        'BREVO_SENDER_EMAIL'
     ];
-    $missing = [];
     
+    $missing = [];
     foreach ($required as $var) {
         if (env($var) === null) {
             $missing[] = $var;
@@ -71,6 +106,21 @@ try {
     }
     
     if (!empty($missing)) {
+        // Log missing variables
+        error_log('Missing environment variables: ' . implode(', ', $missing));
+        
+        // In production, also check if they exist in $_SERVER
+        if ($isProduction) {
+            $serverCheck = [];
+            foreach ($missing as $var) {
+                $inServer = isset($_SERVER[$var]) ? 'YES' : 'NO';
+                $inEnv = isset($_ENV[$var]) ? 'YES' : 'NO';
+                $inGetenv = (getenv($var) !== false) ? 'YES' : 'NO';
+                $serverCheck[] = "$var (SERVER:$inServer ENV:$inEnv GETENV:$inGetenv)";
+            }
+            error_log('Variable check: ' . implode(', ', $serverCheck));
+        }
+        
         throw new Exception("Required environment variables missing: " . implode(', ', $missing));
     }
     
@@ -82,7 +132,8 @@ try {
         'error' => $isProduction ? 'Configuration error' : $e->getMessage(),
         'debug' => !$isProduction ? [
             'missing' => $missing ?? [],
-            'host' => $_SERVER['HTTP_HOST'] ?? 'unknown'
+            'host' => $_SERVER['HTTP_HOST'] ?? 'unknown',
+            'is_production' => $isProduction
         ] : null
     ]);
     exit();
