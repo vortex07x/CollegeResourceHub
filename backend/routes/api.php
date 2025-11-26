@@ -40,6 +40,123 @@ try {
         exit();
     }
 
+    // ==============================================
+    // DEBUG ENDPOINTS (TEMPORARY - REMOVE AFTER FIXING)
+    // ==============================================
+    
+    // 1. Check environment variables
+    if ($uri === '/api/debug/env' && $method === 'GET') {
+        $envCheck = [
+            'timestamp' => date('Y-m-d H:i:s'),
+            'host' => $_SERVER['HTTP_HOST'] ?? 'unknown',
+            'is_production' => $isProduction,
+            'BREVO_API_KEY' => [
+                'env' => isset($_ENV['BREVO_API_KEY']) ? 'SET (' . substr($_ENV['BREVO_API_KEY'], 0, 15) . '...)' : 'NOT SET',
+                'getenv' => getenv('BREVO_API_KEY') !== false ? 'SET (' . substr(getenv('BREVO_API_KEY'), 0, 15) . '...)' : 'NOT SET',
+                'server' => isset($_SERVER['BREVO_API_KEY']) ? 'SET (' . substr($_SERVER['BREVO_API_KEY'], 0, 15) . '...)' : 'NOT SET',
+            ],
+            'BREVO_SENDER_EMAIL' => [
+                'env' => $_ENV['BREVO_SENDER_EMAIL'] ?? 'NOT SET',
+                'getenv' => getenv('BREVO_SENDER_EMAIL') ?: 'NOT SET',
+                'server' => $_SERVER['BREVO_SENDER_EMAIL'] ?? 'NOT SET',
+            ],
+            'BREVO_SENDER_NAME' => [
+                'env' => $_ENV['BREVO_SENDER_NAME'] ?? 'NOT SET',
+                'getenv' => getenv('BREVO_SENDER_NAME') ?: 'NOT SET',
+                'server' => $_SERVER['BREVO_SENDER_NAME'] ?? 'NOT SET',
+            ],
+            'php_version' => PHP_VERSION,
+            'curl_available' => function_exists('curl_init') ? 'Yes' : 'No',
+        ];
+        
+        Response::success($envCheck, 'Environment check');
+        exit();
+    }
+
+    // 2. Check log files
+    if ($uri === '/api/debug/logs' && $method === 'GET') {
+        $logs = [];
+        
+        $logFiles = [
+            'forgot-password' => BASE_PATH . '/forgot-password-debug.log',
+            'email-service' => BASE_PATH . '/email-service-debug.log',
+            'user-otp' => BASE_PATH . '/user-otp-debug.log',
+        ];
+        
+        foreach ($logFiles as $name => $file) {
+            if (file_exists($file)) {
+                $content = file($file, FILE_IGNORE_NEW_LINES);
+                $logs[$name] = [
+                    'exists' => true,
+                    'size' => filesize($file),
+                    'last_50_lines' => array_slice($content, -50)
+                ];
+            } else {
+                $logs[$name] = [
+                    'exists' => false,
+                    'path_checked' => $file
+                ];
+            }
+        }
+        
+        Response::success($logs, 'Log files check');
+        exit();
+    }
+
+    // 3. Test cURL to Brevo
+    if ($uri === '/api/debug/curl' && $method === 'GET') {
+        $curlTest = [];
+        
+        $curlTest['curl_available'] = function_exists('curl_init');
+        
+        if ($curlTest['curl_available']) {
+            $apiKey = getenv('BREVO_API_KEY') ?: ($_ENV['BREVO_API_KEY'] ?? $_SERVER['BREVO_API_KEY'] ?? null);
+            
+            if ($apiKey) {
+                $ch = curl_init('https://api.brevo.com/v3/account');
+                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+                curl_setopt($ch, CURLOPT_HTTPHEADER, [
+                    'accept: application/json',
+                    'api-key: ' . $apiKey
+                ]);
+                curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+                
+                $response = curl_exec($ch);
+                $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                $curlError = curl_error($ch);
+                curl_close($ch);
+                
+                $curlTest['brevo_api_test'] = [
+                    'http_code' => $httpCode,
+                    'response' => json_decode($response, true),
+                    'error' => $curlError ?: 'No error',
+                    'api_key_used' => substr($apiKey, 0, 15) . '...'
+                ];
+            } else {
+                $curlTest['brevo_api_test'] = 'API key not available';
+            }
+        }
+        
+        Response::success($curlTest, 'cURL test');
+        exit();
+    }
+
+    // 4. Test EmailService initialization
+    if ($uri === '/api/debug/email-init' && $method === 'GET') {
+        try {
+            require_once BASE_PATH . '/utils/EmailService.php';
+            $emailService = new EmailService();
+            Response::success(['status' => 'EmailService initialized successfully'], 'Success');
+        } catch (Exception $e) {
+            Response::error('EmailService initialization failed: ' . $e->getMessage(), 500);
+        }
+        exit();
+    }
+
+    // ==============================================
+    // END DEBUG ENDPOINTS
+    // ==============================================
+
     // Test conversion routes endpoint
     if ($uri === '/api/files/test-conversion' && $method === 'GET') {
         Response::success(['message' => 'Conversion routes are accessible!'], 'Success');
